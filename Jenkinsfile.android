@@ -210,12 +210,12 @@ pipeline {
                     if not exist gradlew.bat goto FALLBACK_GLOBAL_GRADLE
                     
                     echo [INFO] Wrapper generated successfully. Building with gradlew.bat...
-                    call gradlew.bat assembleRelease --no-daemon --stacktrace
+                    call gradlew.bat assembleDebug assembleRelease --no-daemon --stacktrace
                     exit /b %ERRORLEVEL%
 
                     :FALLBACK_GLOBAL_GRADLE
                     echo [WARN] Failed to generate local gradle wrapper. Falling back to direct global gradle invocation...
-                    call gradle assembleRelease --no-daemon
+                    call gradle assembleDebug assembleRelease --no-daemon
                     exit /b %ERRORLEVEL%
 
                     :NO_GLOBAL_GRADLE
@@ -239,12 +239,12 @@ pipeline {
 
                     if not exist gradlew.bat goto BUILD_FAILED_FINAL
                     echo [INFO] Gradle wrapper downloaded successfully. Building release APK...
-                    call gradlew.bat assembleRelease --no-daemon --stacktrace
+                    call gradlew.bat assembleDebug assembleRelease --no-daemon --stacktrace
                     exit /b %ERRORLEVEL%
 
                     :RUN_LOCAL_WRAPPERS
                     echo [INFO] Local gradlew.bat found. Executing build...
-                    call gradlew.bat assembleRelease --no-daemon --stacktrace
+                    call gradlew.bat assembleDebug assembleRelease --no-daemon --stacktrace
                     exit /b %ERRORLEVEL%
 
                     :BUILD_FAILED_FINAL
