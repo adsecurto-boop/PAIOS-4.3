@@ -1,9 +1,12 @@
 import React from 'react';
-import { Search, Sun, Moon, Settings, Cpu } from 'lucide-react';
+import { Search, Sun, Moon, Settings, Cpu, LogOut, User } from 'lucide-react';
 import { CloudSyncBanner } from './CloudSyncBanner';
+import { PaiosUser } from '../firebase';
 
 interface TopHeaderBarProps {
   userName: string;
+  user?: PaiosUser | null;
+  onLogOut?: () => void;
   onOpenSearch: () => void;
   onOpenCheckIn: () => void;
   onOpenReview: () => void;
@@ -13,6 +16,8 @@ interface TopHeaderBarProps {
 
 export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
   userName,
+  user,
+  onLogOut,
   onOpenSearch,
   onOpenCheckIn,
   onOpenReview,
@@ -92,6 +97,31 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
           >
             <Settings className="w-4 h-4" />
           </button>
+
+          {user && onLogOut && (
+            <div className="flex items-center gap-1 pl-1 border-l border-slate-800 ml-1">
+              {user.photoURL ? (
+                <img
+                  src={user.photoURL}
+                  alt={user.displayName || 'User'}
+                  className="w-7 h-7 rounded-full border border-slate-700 object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 flex items-center justify-center text-xs font-bold">
+                  {(user.displayName || user.email || 'U')[0].toUpperCase()}
+                </div>
+              )}
+              <button
+                onClick={onLogOut}
+                className="p-2 rounded-lg bg-slate-800/80 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors border border-slate-700/60"
+                title="Sign Out"
+                aria-label="Sign Out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>

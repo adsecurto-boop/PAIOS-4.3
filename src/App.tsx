@@ -34,6 +34,9 @@ import { InsightsScreen } from './screens/InsightsScreen';
 import { AiScreen } from './screens/AiScreen';
 import { JournalScreen } from './screens/JournalScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { AuthScreen } from './screens/AuthScreen';
+
+import { onAuthChange, listenToCloudData, logOut, PaiosUser } from './firebase';
 
 import { WindowsTitleBar } from './components/WindowsTitleBar';
 import { WindowsTaskBar } from './components/WindowsTaskBar';
@@ -41,6 +44,10 @@ import { DesktopAppExportModal } from './components/DesktopAppExportModal';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTab>(NavTab.TODAY);
+
+  // Auth & Session State
+  const [currentUser, setCurrentUser] = useState<PaiosUser | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
 
   // Desktop Window Controls State
   const [isMaximized, setIsMaximized] = useState(true);
@@ -119,6 +126,48 @@ export const App: React.FC = () => {
     window.addEventListener('paios_storage_change', handleStorageChange);
     return () => window.removeEventListener('paios_storage_change', handleStorageChange);
   }, []);
+
+  // Firebase Auth Session Listener & Realtime Cloud Sync
+  useEffect(() => {
+    let cloudUnsub: (() => void) | null = null;
+
+    const unsubAuth = onAuthChange((user) => {
+      setCurrentUser(user);
+      setIsAuthLoading(false);
+
+      if (user) {
+        if (cloudUnsub) cloudUnsub();
+        cloudUnsub = listenToCloudData(user.uid, () => {
+          reloadState();
+        });
+      } else {
+        if (cloudUnsub) {
+          cloudUnsub();
+          cloudUnsub = null;
+        }
+      }
+    });
+
+    return () => {
+      unsubAuth();
+      if (cloudUnsub) cloudUnsub();
+    };
+  }, []);
+
+  const handleAuthSuccess = (user: PaiosUser) => {
+    setCurrentUser(user);
+    setActiveTab(NavTab.TODAY);
+    reloadState();
+  };
+
+  const handleLogOut = async () => {
+    try {
+      await logOut();
+      setCurrentUser(null);
+    } catch (e) {
+      console.error('Logout error:', e);
+    }
+  };
 
   // Global Desktop Keyboard Shortcuts Listener
   useEffect(() => {
@@ -537,6 +586,23 @@ export const App: React.FC = () => {
   const todayCheckIn = checkIns.find((c) => c.dateString === todayStr) || null;
   const todayReview = reviews.find((r) => r.dateString === todayStr) || null;
 
+  // Render Loading Screen during Auth Check
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-4">
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-xl shadow-blue-500/20 mb-4 animate-pulse">
+          <Cpu className="w-8 h-8" />
+        </div>
+        <p className="text-sm font-medium text-slate-400 font-mono tracking-wide">Initializing PAIOS Security Session...</p>
+      </div>
+    );
+  }
+
+  // Render AuthScreen if unauthenticated
+  if (!currentUser) {
+    return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
       {/* Windows 11 Desktop Title Bar */}
@@ -582,7 +648,9 @@ export const App: React.FC = () => {
           <div className={`flex-1 flex flex-col bg-slate-950 ${!isMaximized ? 'rounded-2xl border border-slate-800/80 shadow-2xl overflow-hidden' : ''}`}>
             {/* Top Header Bar */}
             <TopHeaderBar
-              userName={settings.userName}
+              userName={currentUser.displayName || settings.userName || 'PAIOS User'}
+              user={currentUser}
+              onLogOut={handleLogOut}
               onSyncComplete={reloadState}
               onOpenSearch={() => {
                 handleSearch('');

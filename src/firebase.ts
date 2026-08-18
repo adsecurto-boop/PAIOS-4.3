@@ -4,6 +4,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
+  signInWithCredential,
   getRedirectResult,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -98,6 +99,44 @@ export function onAuthChange(callback: (user: PaiosUser | null) => void): () => 
 }
 
 // Sign-In Handlers
+export async function signInWithCredentialManager(): Promise<PaiosUser> {
+  try {
+    // 1. Try Android Credential Manager API or Web Credentials API if supported
+    if (typeof window !== 'undefined' && 'credentials' in navigator && (navigator as any).credentials) {
+      try {
+        const cred = await (navigator as any).credentials.get({
+          identity: {
+            providers: [
+              {
+                protocol: 'open id',
+                clientId: firebaseConfig.oAuthClientId || '455600423978-df1grg0ghg894skthb46cjlo54mcp49k.apps.googleusercontent.com',
+              },
+            ],
+          },
+        });
+        if (cred && cred.token) {
+          const googleCred = GoogleAuthProvider.credential(cred.token);
+          const result = await signInWithCredential(auth, googleCred);
+          const fbUser = result.user;
+          return {
+            uid: fbUser.uid,
+            email: fbUser.email,
+            displayName: fbUser.displayName || 'Google User',
+            photoURL: fbUser.photoURL,
+          };
+        }
+      } catch (credErr) {
+        console.log('Credential Manager API get passed or unsupported, falling back to Firebase popup:', credErr);
+      }
+    }
+    // 2. Fallback to Firebase Google Popup/Redirect
+    return await signInWithGoogle();
+  } catch (err: any) {
+    console.error('Credential Manager / Google Sign In Error:', err);
+    throw err;
+  }
+}
+
 export async function signInWithGoogle(): Promise<PaiosUser> {
   try {
     const result = await signInWithPopup(auth, googleProvider);
