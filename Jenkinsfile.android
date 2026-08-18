@@ -59,28 +59,26 @@ pipeline {
                     @echo off
                     echo [STATUS] Starting Android release APK compilation stage...
                     
-                    if exist gradlew.bat (
-                        echo [INFO] Local gradlew.bat found. Executing build...
-                        call gradlew.bat assembleRelease --no-daemon --stacktrace
-                        exit /b %ERRORLEVEL%
-                    )
-
+                    if exist gradlew.bat goto RUN_LOCAL_WRAPPERS
+                    
                     echo [WARN] gradlew.bat not found. Checking for global 'gradle' in PATH...
                     where gradle >nul 2>&1
-                    if %ERRORLEVEL% equ 0 (
-                        echo [INFO] Global gradle found. Attempting to generate gradle wrapper...
-                        call gradle wrapper
-                        if exist gradlew.bat (
-                            echo [INFO] Wrapper generated successfully. Building with gradlew.bat...
-                            call gradlew.bat assembleRelease --no-daemon --stacktrace
-                            exit /b %ERRORLEVEL%
-                        ) else (
-                            echo [WARN] Failed to generate local gradle wrapper. Falling back to direct global gradle command...
-                            call gradle assembleRelease --no-daemon
-                            exit /b %ERRORLEVEL%
-                        )
-                    )
+                    if %ERRORLEVEL% neq 0 goto NO_GLOBAL_GRADLE
+                    
+                    echo [INFO] Global gradle found. Attempting to generate gradle wrapper...
+                    call gradle wrapper
+                    if not exist gradlew.bat goto FALLBACK_GLOBAL_GRADLE
+                    
+                    echo [INFO] Wrapper generated successfully. Building with gradlew.bat...
+                    call gradlew.bat assembleRelease --no-daemon --stacktrace
+                    exit /b %ERRORLEVEL%
 
+                    :FALLBACK_GLOBAL_GRADLE
+                    echo [WARN] Failed to generate local gradle wrapper. Falling back to direct global gradle invocation...
+                    call gradle assembleRelease --no-daemon
+                    exit /b %ERRORLEVEL%
+
+                    :NO_GLOBAL_GRADLE
                     echo [WARN] Global gradle not found in PATH. Attempting to download Gradle Wrapper v8.2.0 for maximum resilience...
                     if not exist gradle\\wrapper mkdir gradle\\wrapper
 
@@ -99,15 +97,20 @@ pipeline {
                         echo zipStorePath=wrapper/dists
                     ) > gradle\\wrapper\\gradle-wrapper.properties
 
-                    if exist gradlew.bat (
-                        echo [INFO] Gradle wrapper downloaded successfully. Building release APK...
-                        call gradlew.bat assembleRelease --no-daemon --stacktrace
-                        exit /b %ERRORLEVEL%
-                    ) else (
-                        echo [ERROR] Build Failure: Neither local gradlew.bat, global gradle, nor wrapper download was successful.
-                        echo [ERROR] Please verify that Java, Gradle, and the Android SDK are installed and configured on the build agent.
-                        exit /b 1
-                    )
+                    if not exist gradlew.bat goto BUILD_FAILED_FINAL
+                    echo [INFO] Gradle wrapper downloaded successfully. Building release APK...
+                    call gradlew.bat assembleRelease --no-daemon --stacktrace
+                    exit /b %ERRORLEVEL%
+
+                    :RUN_LOCAL_WRAPPERS
+                    echo [INFO] Local gradlew.bat found. Executing build...
+                    call gradlew.bat assembleRelease --no-daemon --stacktrace
+                    exit /b %ERRORLEVEL%
+
+                    :BUILD_FAILED_FINAL
+                    echo [ERROR] Build Failure: Neither local gradlew.bat, global gradle, nor wrapper download was successful.
+                    echo [ERROR] Please verify that Java, Gradle, and the Android SDK are installed and configured on the build agent.
+                    exit /b 1
                     '''
                 }
             }
