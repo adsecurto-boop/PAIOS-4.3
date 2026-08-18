@@ -52,13 +52,19 @@ pipeline {
             }
         }
 
-        stage('Assemble Android APK') {
+        stage('Inject Google Services Configuration') {
             steps {
-                script {
-                    // Natively and reliably check and generate google-services.json using Groovy Pipeline API
-                    if (!fileExists('android/app/google-services.json')) {
-                        echo "[INFO] android/app/google-services.json not found. Dynamically writing mock configuration..."
-                        writeFile file: 'android/app/google-services.json', text: '''{
+                powershell '''
+                # Safely resolve absolute path to guarantee execution context remains inside workspace (not System32)
+                $absolutePath = Join-Path $pwd "android/app/google-services.json"
+                $parentDir = Split-Path $absolutePath -Parent
+                
+                if (!(Test-Path $parentDir)) {
+                    New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+                }
+                
+                $jsonContent = @'
+{
   "project_info": {
     "project_number": "123456789012",
     "project_id": "mock-project-id",
@@ -86,11 +92,16 @@ pipeline {
     }
   ],
   "configuration_version": "1"
-}'''
-                    } else {
-                        echo "[INFO] Existing google-services.json found inside android/app/."
-                    }
-                }
+}
+'@
+                [System.IO.File]::WriteAllText($absolutePath, $jsonContent, [System.Text.Encoding]::UTF8)
+                Write-Output "[INFO] Unconditionally rewrote $absolutePath cleanly using native PowerShell."
+                '''
+            }
+        }
+
+        stage('Assemble Android APK') {
+            steps {
                 dir('android') {
                     bat '''
                     @echo off
@@ -162,6 +173,16 @@ pipeline {
     }
 
     post {
+        always {
+            script {
+                echo 'Cleaning ephemeral cache and build temporary directories...'
+                try {
+                    bat 'if exist android\\app\\build\\tmp ( rmdir /s /q android\\app\\build\\tmp )'
+                } catch (Exception e) {
+                    echo "Warning: Ephemeral cache directory cleanup failed: ${e.message}"
+                }
+            }
+        }
         success {
             script {
                 updateGitHubCommitStatus('SUCCESS', 'Android APK build completed successfully!')
