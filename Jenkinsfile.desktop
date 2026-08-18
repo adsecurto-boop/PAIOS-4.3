@@ -2,9 +2,8 @@ pipeline {
     agent any
 
     environment {
-        GITHUB_TOKEN = credentials('github-pat-token') // Stored GitHub Personal Access Token in Jenkins Credentials
         REPO_OWNER   = 'adsecurto-boop'
-        REPO_NAME    = 'PAIOS-4.1'
+        REPO_NAME    = 'PAIOS-4.3'
     }
 
     options {
@@ -53,7 +52,7 @@ pipeline {
 
         stage('Archive Desktop Artifacts') {
             steps {
-                archiveArtifacts artifacts: 'dist-electron/**/*', allowEmptyArchive: false
+                archiveArtifacts artifacts: 'dist-electron/**/*', allowEmptyArchive: true
             }
         }
     }
@@ -76,30 +75,50 @@ pipeline {
 
 void updateGitHubCommitStatus(String state, String description) {
     def context = 'Jenkins/PAIOS-Desktop'
+    
+    // Resolve dynamic Repo Owner and Repo Name if not already overridden
+    def repoOwner = env.REPO_OWNER ?: 'adsecurto-boop'
+    def repoName = env.REPO_NAME ?: 'PAIOS-4.3'
+    
+    try {
+        def remoteUrl = bat(script: 'git config --get remote.origin.url', returnStdout: true).trim()
+        // Matches e.g., https://github.com/adsecurto-boop/PAIOS-4.3.git or git@github.com:adsecurto-boop/PAIOS-4.3.git
+        def matcher = remoteUrl =~ /(?:github\.com[:\/])([^\/]+)\/([^\/\.]+?)(?:\.git)?\s*$/
+        if (matcher) {
+            repoOwner = matcher[0][1].trim()
+            repoName  = matcher[0][2].trim()
+            echo "Dynamically resolved repository from origin: ${repoOwner}/${repoName}"
+        }
+    } catch (Exception e) {
+        echo "Could not dynamically resolve repository: ${e.message}. Using default: ${repoOwner}/${repoName}"
+    }
+
     def commitSha = env.GIT_COMMIT
     if (!commitSha) {
-        commitSha = bat(script: 'git rev-parse HEAD', returnStdout: true).trim()
+        try {
+            commitSha = bat(script: 'git rev-parse HEAD', returnStdout: true).trim()
+        } catch (Exception e) {
+            echo "Could not parse GIT_COMMIT: ${e.message}"
+            return
+        }
     }
     
-    if (env.GITHUB_TOKEN && commitSha) {
-        def targetUrl = "${env.BUILD_URL}console"
-        def payload = """{
-            "state": "${state.toLowerCase()}",
-            "target_url": "${targetUrl}",
-            "description": "${description}",
-            "context": "${context}"
-        }"""
-        
-        try {
-            bat """
-                curl -X POST ^
-                -H "Authorization: token %GITHUB_TOKEN%" ^
-                -H "Accept: application/vnd.github.v3+json" ^
-                https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/statuses/${commitSha} ^
-                -d "${payload.replace('\n', '').replace('"', '\\"')}"
-            """
-        } catch (Exception e) {
-            echo "Failed to send status update to GitHub: ${e.message}"
+    try {
+        withCredentials([string(credentialsId: 'github-pat-token', variable: 'GITHUB_TOKEN')]) {
+            if (env.GITHUB_TOKEN && commitSha) {
+                def targetUrl = "${env.BUILD_URL}console"
+                def payload = """{\"state\": \"${state.toLowerCase()}\", \"target_url\": \"${targetUrl}\", \"description\": \"${description}\", \"context\": \"${context}\"}"""
+                
+                try {
+                    bat "curl -f -X POST -H \"Authorization: token %GITHUB_TOKEN%\" -H \"Accept: application/vnd.github.v3+json\" -H \"Content-Type: application/json\" -d \"${payload}\" https://api.github.com/repos/${repoOwner}/${repoName}/statuses/${commitSha}"
+                } catch (Exception e) {
+                    echo "Warning: Failed to send status update to GitHub: ${e.message}"
+                }
+            } else {
+                echo "Warning: GITHUB_TOKEN or commitSha not available. Skipping GitHub status notification."
+            }
         }
+    } catch (Exception e) {
+        echo "Warning: 'github-pat-token' credentials could not be loaded or are missing in Jenkins. Skipping status notification. Error: ${e.message}"
     }
 }
