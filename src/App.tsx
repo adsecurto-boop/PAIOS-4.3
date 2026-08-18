@@ -47,15 +47,9 @@ import { MobileBottomNav } from './components/MobileBottomNav';
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTab>(NavTab.TODAY);
 
-  // Auth & Session State (Defaulting to local owner session for unblocked local-first access)
-  const defaultLocalUser: PaiosUser = {
-    uid: 'paios_local_owner',
-    email: 'owner@paios.local',
-    displayName: 'PAIOS Owner',
-  };
-
-  const [currentUser, setCurrentUser] = useState<PaiosUser>(defaultLocalUser);
-  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(false);
+  // Auth & Session State
+  const [currentUser, setCurrentUser] = useState<PaiosUser | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
 
   // Desktop Window Controls State
   const [isMaximized, setIsMaximized] = useState(true);
@@ -147,7 +141,16 @@ export const App: React.FC = () => {
           reloadState();
         });
       } else {
-        setCurrentUser(defaultLocalUser);
+        const savedGuest = localStorage.getItem('paios_guest_session');
+        if (savedGuest === 'true') {
+          setCurrentUser({
+            uid: 'paios_local_owner',
+            email: 'owner@paios.local',
+            displayName: 'PAIOS Owner',
+          });
+        } else {
+          setCurrentUser(null);
+        }
         if (cloudUnsub) {
           cloudUnsub();
           cloudUnsub = null;
@@ -163,6 +166,7 @@ export const App: React.FC = () => {
   }, []);
 
   const handleAuthSuccess = (user: PaiosUser) => {
+    localStorage.setItem('paios_guest_session', 'true');
     setCurrentUser(user);
     setActiveTab(NavTab.TODAY);
     reloadState();
@@ -170,10 +174,13 @@ export const App: React.FC = () => {
 
   const handleLogOut = async () => {
     try {
+      localStorage.removeItem('paios_guest_session');
       await logOut();
-      setCurrentUser(defaultLocalUser);
+      setCurrentUser(null);
     } catch (e) {
       console.error('Logout error:', e);
+      localStorage.removeItem('paios_guest_session');
+      setCurrentUser(null);
     }
   };
 
@@ -645,6 +652,11 @@ export const App: React.FC = () => {
         <p className="text-sm font-medium text-slate-400 font-mono tracking-wide">Initializing PAIOS Session...</p>
       </div>
     );
+  }
+
+  // Render AuthScreen if unauthenticated
+  if (!currentUser) {
+    return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
   }
 
   return (
