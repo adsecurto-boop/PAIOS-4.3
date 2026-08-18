@@ -59,6 +59,9 @@ pipeline {
                     @echo off
                     echo [STATUS] Starting Android release APK compilation stage...
                     
+                    echo [STATUS] Checking for Google Services configuration...
+                    powershell -Command "if (!(Test-Path 'app\\google-services.json')) { echo '[INFO] Creating mock google-services.json...'; [System.IO.File]::WriteAllText('app\\google-services.json', '{\"project_info\": {\"project_number\": \"123456789012\", \"project_id\": \"mock-project-id\", \"storage_bucket\": \"mock-project-id.appspot.com\"}, \"client\": [{\"client_info\": {\"mobilesdk_app_id\": \"1:123456789012:android:abcdef123456\", \"android_client_info\": {\"package_name\": \"com.paios.app\"}}, \"oauth_client\": [], \"api_key\": [{\"current_key\": \"mock-api-key\"}], \"services\": {\"appinvite_service\": {\"other_platform_oauth_client\": []}}}], \"configuration_version\": \"1\"}') }"
+                    
                     if exist gradlew.bat goto RUN_LOCAL_WRAPPERS
                     
                     echo [WARN] gradlew.bat not found. Checking for global 'gradle' in PATH...
