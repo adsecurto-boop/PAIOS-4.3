@@ -704,6 +704,11 @@ ${userContext}
   }
 });
 
+// Explicit API 404 Handler - prevents Vite SPA static fallback from serving index.html for API calls
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: `API endpoint ${req.path} not found` });
+});
+
 // Setup server middleware and static serving
 async function setupMiddleware() {
   if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {

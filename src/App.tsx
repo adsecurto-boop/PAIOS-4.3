@@ -37,6 +37,7 @@ import { SettingsScreen } from './screens/SettingsScreen';
 import { AuthScreen } from './screens/AuthScreen';
 
 import { onAuthChange, listenToCloudData, logOut, PaiosUser } from './firebase';
+import { sendClientGeminiChat } from './geminiClient';
 
 import { WindowsTitleBar } from './components/WindowsTitleBar';
 import { WindowsTaskBar } from './components/WindowsTaskBar';
@@ -466,19 +467,60 @@ export const App: React.FC = () => {
         return;
       }
 
-      const errorText = await response.text();
-      console.error('Non-JSON response from AI endpoint:', response.status, errorText);
-      throw new Error(`Server returned status ${response.status}: ${errorText.slice(0, 100)}`);
-    } catch (err: any) {
-      console.error('AI Chat Error:', err);
-      const errorMsg: AiChatMessage = {
+      // If server returned HTML (standalone/offline app) or failed, fall back to direct client-side Gemini execution
+      console.warn('Server endpoint returned non-JSON response. Executing direct client-side Gemini call...');
+      const fallbackData = await sendClientGeminiChat({
+        userText,
+        userContext: contextStr,
+        modelName: settings.preferredModel,
+        customApiKey: settings.customApiKey,
+        role: options?.role || 'productivity',
+        taskComplexity: options?.taskComplexity || 'general',
+        history: currentHistory,
+      });
+
+      const botMsg: AiChatMessage = {
         id: Date.now() + 1,
-        text: err?.message || 'Error connecting to PAIOS AI server. Please verify your network or Gemini settings.',
+        text: fallbackData.text,
         isUser: false,
         timestampMillis: Date.now(),
+        actionType: (fallbackData.actionType as any) || undefined,
+        actionPayloadJson: fallbackData.actionPayloadJson || undefined,
       };
-      PAIOSStorage.addAiMessage(errorMsg);
+      PAIOSStorage.addAiMessage(botMsg);
       reloadState();
+    } catch (err: any) {
+      console.error('AI Chat Error, falling back to client-side call:', err);
+      try {
+        const fallbackData = await sendClientGeminiChat({
+          userText,
+          userContext: contextStr,
+          modelName: settings.preferredModel,
+          customApiKey: settings.customApiKey,
+          role: options?.role || 'productivity',
+          taskComplexity: options?.taskComplexity || 'general',
+          history: currentHistory,
+        });
+        const botMsg: AiChatMessage = {
+          id: Date.now() + 1,
+          text: fallbackData.text,
+          isUser: false,
+          timestampMillis: Date.now(),
+          actionType: (fallbackData.actionType as any) || undefined,
+          actionPayloadJson: fallbackData.actionPayloadJson || undefined,
+        };
+        PAIOSStorage.addAiMessage(botMsg);
+        reloadState();
+      } catch (fallbackErr: any) {
+        const errorMsg: AiChatMessage = {
+          id: Date.now() + 1,
+          text: fallbackErr?.message || 'Error connecting to PAIOS AI server. Please verify your network or Gemini settings.',
+          isUser: false,
+          timestampMillis: Date.now(),
+        };
+        PAIOSStorage.addAiMessage(errorMsg);
+        reloadState();
+      }
     }
   };
 
