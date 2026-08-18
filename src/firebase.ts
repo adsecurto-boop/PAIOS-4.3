@@ -155,7 +155,16 @@ export async function signInWithGoogle(): Promise<PaiosUser> {
       throw new Error('Redirecting to system browser for authentication...');
     }
     if (err.code === 'auth/unauthorized-domain') {
-      throw new Error(`UNAUTHORIZED_DOMAIN|${window.location.hostname}`);
+      console.warn(`[PAIOS Auth] Domain (${window.location.hostname}) not in OAuth whitelist. Automatically activating Local-First Firestore Guest Sync...`);
+      try {
+        const guestUser = await signInWithGuestSync();
+        return {
+          ...guestUser,
+          displayName: `Local-First User (${window.location.hostname})`,
+        };
+      } catch (guestErr) {
+        throw new Error(`UNAUTHORIZED_DOMAIN|${window.location.hostname}`);
+      }
     }
     if (err.code === 'auth/operation-not-allowed') {
       throw new Error('EMAIL_AUTH_DISABLED');

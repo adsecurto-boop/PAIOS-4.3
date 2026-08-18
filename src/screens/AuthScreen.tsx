@@ -65,9 +65,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
       const msg = err?.message || String(err);
       if (msg.includes('UNAUTHORIZED_DOMAIN')) {
         const domain = msg.split('|')[1] || window.location.hostname;
-        setErrorMessage(
-          `Domain (${domain}) is not authorized in Firebase Auth. Add it to Firebase Console > Authentication > Settings > Authorized domains.`
-        );
+        try {
+          const guestUser = await signInWithGuestSync();
+          setSuccessMessage(`Localhost environment (${domain}): Local-First Firestore Sync activated!`);
+          setTimeout(() => onAuthSuccess(guestUser), 500);
+        } catch (guestErr) {
+          setErrorMessage(
+            `Domain (${domain}) is not authorized in Firebase Auth. Click 'Activate Local-First Sync' below to proceed without domain setup.`
+          );
+        }
       } else if (msg.includes('Redirecting to system browser')) {
         setSuccessMessage('Redirecting to browser for authentication...');
       } else {
@@ -221,9 +227,21 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
 
         {/* Alerts & Messages */}
         {errorMessage && (
-          <div className="mb-5 p-3 rounded-xl bg-red-950/60 border border-red-800/80 text-red-200 text-xs flex items-start gap-2.5">
-            <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-            <div className="flex-1 break-words leading-relaxed">{errorMessage}</div>
+          <div className="mb-5 p-3 rounded-xl bg-red-950/60 border border-red-800/80 text-red-200 text-xs space-y-2">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+              <div className="flex-1 break-words leading-relaxed">{errorMessage}</div>
+            </div>
+            {(errorMessage.includes('Domain') || errorMessage.includes('authorized')) && (
+              <button
+                type="button"
+                onClick={handleGuestAuth}
+                className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Activate Local-First Firestore Sync</span>
+              </button>
+            )}
           </div>
         )}
 
