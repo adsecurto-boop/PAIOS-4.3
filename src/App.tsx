@@ -41,6 +41,7 @@ import { onAuthChange, listenToCloudData, logOut, PaiosUser } from './firebase';
 import { WindowsTitleBar } from './components/WindowsTitleBar';
 import { WindowsTaskBar } from './components/WindowsTaskBar';
 import { DesktopAppExportModal } from './components/DesktopAppExportModal';
+import { MobileBottomNav } from './components/MobileBottomNav';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTab>(NavTab.TODAY);
@@ -604,7 +605,7 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white overflow-x-hidden w-full max-w-full safe-area-left safe-area-right">
       {/* Windows 11 Desktop Title Bar */}
       <WindowsTitleBar
         isMaximized={isMaximized}
@@ -662,7 +663,7 @@ export const App: React.FC = () => {
             />
 
             {/* Main Content Area */}
-            <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 pb-20">
+            <main className="flex-1 max-w-6xl w-full mx-auto p-3 sm:p-6 pb-28 md:pb-20 overflow-x-hidden">
               {activeTab === NavTab.TODAY && (
                 <TodayScreen
                   activeActivity={activeActivity}
@@ -782,7 +783,7 @@ export const App: React.FC = () => {
 
       {/* Persistent Floating Mini Timer Player */}
       {activeActivity && activeTab !== NavTab.TODAY && (
-        <div className="fixed bottom-16 left-0 right-0 z-40">
+        <div className="fixed bottom-[56px] md:bottom-12 left-0 right-0 z-40">
           <MiniTimerPlayer
             activity={activeActivity}
             elapsedSeconds={elapsedTimerSeconds}
@@ -793,6 +794,25 @@ export const App: React.FC = () => {
           />
         </div>
       )}
+
+      {/* Mobile Android Floating Action Button (FAB) for Quick Capture */}
+      <button
+        onClick={() => setShowQuickCaptureModal(true)}
+        className="fixed bottom-[70px] right-4 z-40 md:hidden w-13 h-13 rounded-full bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white shadow-xl shadow-indigo-600/40 border border-indigo-400/30 flex items-center justify-center active:scale-90 transition-transform"
+        aria-label="Quick Capture Task or Note"
+        title="Quick Capture"
+      >
+        <Plus className="w-6 h-6" />
+      </button>
+
+      {/* Mobile Bottom Navigation Dock */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        onSelectTab={(tab) => {
+          setIsMinimized(false);
+          setActiveTab(tab);
+        }}
+      />
 
       {/* Windows 11 Bottom Taskbar */}
       <WindowsTaskBar

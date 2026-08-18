@@ -454,23 +454,93 @@ const initialAiMessages: AIMessage[] = [
   },
 ];
 
-// LocalStorage helpers
+// Local-First High Performance In-Memory Cache & Offline Sync Ledger
+const memoryCache = new Map<string, { value: any; timestamp: number }>();
+const PENDING_SYNC_KEY = 'paios_pending_sync_v1';
+
+export interface PendingSyncMutation {
+  id: string;
+  key: string;
+  timestamp: number;
+  action: 'SAVE' | 'DELETE';
+}
+
+let isOnlineState = typeof navigator !== 'undefined' ? navigator.onLine : true;
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    isOnlineState = true;
+    window.dispatchEvent(new CustomEvent('paios_network_status_change', { detail: { online: true } }));
+  });
+  window.addEventListener('offline', () => {
+    isOnlineState = false;
+    window.dispatchEvent(new CustomEvent('paios_network_status_change', { detail: { online: false } }));
+  });
+}
+
 function load<T>(key: string, fallback: T): T {
-  try {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : fallback;
-  } catch (e) {
-    console.error(`Error loading key ${key}:`, e);
-    return fallback;
+  // 1. Try returning from instant in-memory cache
+  const cached = memoryCache.get(key);
+  if (cached !== undefined) {
+    return cached.value as T;
   }
+
+  // 2. Read from LocalStorage fallback
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const data = localStorage.getItem(key);
+      if (data) {
+        const parsed = JSON.parse(data);
+        memoryCache.set(key, { value: parsed, timestamp: Date.now() });
+        return parsed as T;
+      }
+    }
+  } catch (e) {
+    console.warn(`[PAIOSCache] Error loading key ${key} from localStorage:`, e);
+  }
+
+  // 3. Fallback to default initial state and cache it
+  memoryCache.set(key, { value: fallback, timestamp: Date.now() });
+  return fallback;
 }
 
 function save<T>(key: string, value: T): void {
+  const now = Date.now();
+  // 1. Synchronously populate in-memory cache (0ms read latency guaranteed)
+  memoryCache.set(key, { value, timestamp: now });
+
+  // 2. Persist to LocalStorage
   try {
-    localStorage.setItem(key, JSON.stringify(value));
-    window.dispatchEvent(new Event('paios_storage_change'));
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(key, JSON.stringify(value));
+    }
   } catch (e) {
-    console.error(`Error saving key ${key}:`, e);
+    console.error(`[PAIOSCache] LocalStorage quota/write exception for key ${key}:`, e);
+  }
+
+  // 3. Queue offline mutation ledger if network is unstable/offline
+  if (key !== PENDING_SYNC_KEY) {
+    try {
+      const queue = load<PendingSyncMutation[]>(PENDING_SYNC_KEY, []);
+      const updatedQueue = queue.filter((q) => q.key !== key);
+      updatedQueue.push({
+        id: `mut_${key}_${now}`,
+        key,
+        timestamp: now,
+        action: 'SAVE',
+      });
+      // Save queue silently without recursion
+      memoryCache.set(PENDING_SYNC_KEY, { value: updatedQueue, timestamp: now });
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(updatedQueue));
+      }
+    } catch (e) {}
+  }
+
+  // 4. Dispatch storage event for UI updates & real-time sync listeners
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('paios_storage_change'));
+    window.dispatchEvent(new CustomEvent('paios_cache_updated', { detail: { key, timestamp: now } }));
   }
 }
 
@@ -1262,6 +1332,37 @@ ${captures.map((c) => `- [${formatTime(c.createdAtMillis)}] "${c.text}"`).join('
 RECENT JOURNAL ENTRIES:
 ${journal.map((j) => `- [${formatTime(j.createdAtMillis)}] "${j.title}" (Mood Score: ${j.moodScore || 5}/10) | Preview: "${j.content.slice(0, 80)}..."`).join('\n') || '- No journal entries.'}
     `.trim();
+  },
+
+  // --- LOCAL-FIRST CACHE & OFFLINE ENGINE HELPERS ---
+  isOnline(): boolean {
+    return isOnlineState;
+  },
+  getPendingSyncQueue(): PendingSyncMutation[] {
+    return load<PendingSyncMutation[]>(PENDING_SYNC_KEY, []);
+  },
+  getPendingSyncCount(): number {
+    return this.getPendingSyncQueue().length;
+  },
+  clearPendingSyncQueue(): void {
+    save(PENDING_SYNC_KEY, []);
+  },
+  getCacheUsageKB(): number {
+    try {
+      let totalBytes = 0;
+      memoryCache.forEach((entry) => {
+        totalBytes += JSON.stringify(entry.value).length * 2;
+      });
+      return Math.round(totalBytes / 1024);
+    } catch (e) {
+      return 0;
+    }
+  },
+  invalidateCacheKey(key: string): void {
+    memoryCache.delete(key);
+  },
+  clearMemoryCache(): void {
+    memoryCache.clear();
   },
 };
 

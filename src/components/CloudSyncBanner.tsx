@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Cloud, LogOut, RefreshCw, Sparkles, ShieldCheck, Mail, UserCheck, ArrowRight, Lock, CheckCircle2, AlertTriangle, User, ExternalLink, Smartphone } from 'lucide-react';
+import { Cloud, LogOut, RefreshCw, Sparkles, ShieldCheck, Mail, UserCheck, ArrowRight, Lock, CheckCircle2, AlertTriangle, User, ExternalLink, Smartphone, WifiOff, HardDrive } from 'lucide-react';
+import { PAIOSStorage } from '../storage';
 import {
   auth,
   signInWithGoogle,
@@ -28,12 +29,29 @@ export const CloudSyncBanner: React.FC<CloudSyncBannerProps> = ({ onSyncComplete
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [quotaExceeded, setQuotaExceeded] = useState(isQuotaExceeded());
+  const [isOnline, setIsOnline] = useState(PAIOSStorage.isOnline());
+  const [pendingSyncCount, setPendingSyncCount] = useState(PAIOSStorage.getPendingSyncCount());
 
   useEffect(() => {
     const handleQuota = () => setQuotaExceeded(true);
+    const handleStorageChange = () => setPendingSyncCount(PAIOSStorage.getPendingSyncCount());
+    const handleNetworkChange = (e: any) => {
+      setIsOnline(e.detail?.online ?? navigator.onLine);
+      if (e.detail?.online && currentUser) {
+        syncLocalToCloud(currentUser.uid).then(() => PAIOSStorage.clearPendingSyncQueue());
+      }
+    };
+
     window.addEventListener('paios_quota_exceeded', handleQuota);
-    return () => window.removeEventListener('paios_quota_exceeded', handleQuota);
-  }, []);
+    window.addEventListener('paios_storage_change', handleStorageChange);
+    window.addEventListener('paios_network_status_change', handleNetworkChange as EventListener);
+
+    return () => {
+      window.removeEventListener('paios_quota_exceeded', handleQuota);
+      window.removeEventListener('paios_storage_change', handleStorageChange);
+      window.removeEventListener('paios_network_status_change', handleNetworkChange as EventListener);
+    };
+  }, [currentUser]);
 
   // Auth Tabs State
   const [authMethod, setAuthMethod] = useState<'google' | 'email' | 'guest'>('google');
@@ -174,9 +192,9 @@ export const CloudSyncBanner: React.FC<CloudSyncBannerProps> = ({ onSyncComplete
               <span className="text-[11px] font-semibold text-slate-200 leading-tight truncate max-w-[100px]">
                 {currentUser.displayName || currentUser.email}
               </span>
-              <span className="text-[9px] text-emerald-400 font-mono flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                Firestore Synced
+              <span className={`text-[9px] font-mono flex items-center gap-1 ${isOnline ? 'text-emerald-400' : 'text-amber-400'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+                {isOnline ? 'Local-First Cache Active' : 'Offline Mode (Local Cache)'}
               </span>
             </div>
             <button

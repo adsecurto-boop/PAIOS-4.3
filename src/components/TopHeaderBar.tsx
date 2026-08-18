@@ -1,10 +1,10 @@
 import React from 'react';
-import { Search, Sun, Moon, Settings, Cpu, LogOut, User } from 'lucide-react';
+import { Search, Sun, Moon, Settings, Cpu, LogOut } from 'lucide-react';
 import { CloudSyncBanner } from './CloudSyncBanner';
 import { PaiosUser } from '../firebase';
 
 interface TopHeaderBarProps {
-  userName: string;
+  userName?: string;
   user?: PaiosUser | null;
   onLogOut?: () => void;
   onOpenSearch: () => void;
@@ -15,7 +15,6 @@ interface TopHeaderBarProps {
 }
 
 export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
-  userName,
   user,
   onLogOut,
   onOpenSearch,
@@ -24,47 +23,26 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
   onOpenSettings,
   onSyncComplete,
 }) => {
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 18) return 'Good afternoon';
-    return 'Good evening';
-  };
-
-  const formattedDate = new Date().toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-
   return (
-    <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 text-slate-100 shadow-sm">
+    <header className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur-md border-b border-slate-800/80 px-3 py-2 sm:px-4 sm:py-2.5 text-slate-100 shadow-sm pt-[env(safe-area-inset-top,0px)]">
       <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
-            <Cpu className="w-5 h-5" />
+        {/* Compact Logo Branding without decorative text on mobile */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
+            <Cpu className="w-4 h-4 sm:w-5 sm:h-5" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-heading font-extrabold text-base tracking-wider bg-gradient-to-r from-indigo-300 via-cyan-200 to-white bg-clip-text text-transparent">
-                PAIOS
-              </span>
-              <span className="text-[10px] uppercase font-mono tracking-widest px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/50">
-                v4.0
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 font-medium">
-              {getGreeting()}, <span className="text-slate-200 font-semibold">{userName}</span> &bull; {formattedDate}
-            </p>
-          </div>
+          <span className="hidden sm:inline-block font-heading font-extrabold text-sm sm:text-base tracking-wider bg-gradient-to-r from-indigo-300 via-cyan-200 to-white bg-clip-text text-transparent">
+            PAIOS
+          </span>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        {/* Streamlined Interactive Tools Header Controls */}
+        <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar">
           <CloudSyncBanner compact onSyncComplete={onSyncComplete} />
 
           <button
             onClick={onOpenSearch}
-            className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors border border-slate-700/60"
+            className="p-2 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors border border-slate-700/60 shrink-0 min-h-[38px] min-w-[38px] flex items-center justify-center"
             title="Search PAIOS (Tasks, Notes, Journal)"
             aria-label="Search"
           >
@@ -73,7 +51,7 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
 
           <button
             onClick={onOpenCheckIn}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-medium transition-colors shrink-0 min-h-[38px]"
             title="Morning Check-In"
           >
             <Sun className="w-4 h-4 text-amber-400" />
@@ -82,7 +60,7 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
 
           <button
             onClick={onOpenReview}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-medium transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-medium transition-colors shrink-0 min-h-[38px]"
             title="Evening Review"
           >
             <Moon className="w-4 h-4 text-indigo-400" />
@@ -91,7 +69,7 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
 
           <button
             onClick={onOpenSettings}
-            className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors border border-slate-700/60"
+            className="p-2 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors border border-slate-700/60 shrink-0 min-h-[38px] min-w-[38px] flex items-center justify-center"
             title="Settings"
             aria-label="Settings"
           >
@@ -99,28 +77,14 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
           </button>
 
           {user && onLogOut && (
-            <div className="flex items-center gap-1 pl-1 border-l border-slate-800 ml-1">
-              {user.photoURL ? (
-                <img
-                  src={user.photoURL}
-                  alt={user.displayName || 'User'}
-                  className="w-7 h-7 rounded-full border border-slate-700 object-cover"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="w-7 h-7 rounded-full bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 flex items-center justify-center text-xs font-bold">
-                  {(user.displayName || user.email || 'U')[0].toUpperCase()}
-                </div>
-              )}
-              <button
-                onClick={onLogOut}
-                className="p-2 rounded-lg bg-slate-800/80 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors border border-slate-700/60"
-                title="Sign Out"
-                aria-label="Sign Out"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
+            <button
+              onClick={onLogOut}
+              className="p-2 rounded-xl bg-slate-800/90 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors border border-slate-700/60 shrink-0 min-h-[38px] min-w-[38px] flex items-center justify-center ml-1"
+              title="Sign Out"
+              aria-label="Sign Out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           )}
         </div>
       </div>

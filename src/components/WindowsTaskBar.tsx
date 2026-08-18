@@ -109,7 +109,7 @@ export const WindowsTaskBar: React.FC<WindowsTaskBarProps> = ({
   ];
 
   return (
-    <div className="relative z-50 select-none">
+    <div className="hidden md:block relative z-50 select-none">
       {/* Windows 11 Start Menu Popover */}
       {showStartMenu && (
         <div

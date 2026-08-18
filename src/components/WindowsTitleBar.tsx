@@ -58,7 +58,7 @@ export const WindowsTitleBar: React.FC<WindowsTitleBarProps> = ({
 
   return (
     <div
-      className="relative z-50 select-none bg-slate-900 border-b border-slate-800 text-slate-300 flex flex-col font-sans"
+      className="hidden md:flex relative z-50 select-none bg-slate-900 border-b border-slate-800 text-slate-300 flex-col font-sans"
       onMouseLeave={closeMenus}
     >
       {/* Top Window Bar */}
