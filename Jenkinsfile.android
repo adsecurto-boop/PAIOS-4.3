@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         REPO_OWNER   = 'adsecurto-boop'
-        REPO_NAME    = 'PAIOS-4.2'
+        REPO_NAME    = 'PAIOS-4.3'
         
         // Define or default common Java and Android SDK environment variables for Windows agents
         JAVA_HOME    = "${env.JAVA_HOME ?: 'C:\\Program Files\\Java\\jdk-17'}"
@@ -60,12 +60,12 @@ pipeline {
                     echo [STATUS] Starting Android release APK compilation stage...
                     
                     if exist gradlew.bat (
-                        echo [INFO] gradlew.bat found. Executing gradle build...
+                        echo [INFO] Local gradlew.bat found. Executing build...
                         call gradlew.bat assembleRelease --no-daemon --stacktrace
                         exit /b %ERRORLEVEL%
                     )
 
-                    echo [WARN] gradlew.bat not found in the android directory. Checking for global 'gradle' command in PATH...
+                    echo [WARN] gradlew.bat not found. Checking for global 'gradle' in PATH...
                     where gradle >nul 2>&1
                     if %ERRORLEVEL% equ 0 (
                         echo [INFO] Global gradle found. Attempting to generate gradle wrapper...
@@ -75,12 +75,36 @@ pipeline {
                             call gradlew.bat assembleRelease --no-daemon --stacktrace
                             exit /b %ERRORLEVEL%
                         ) else (
-                            echo [WARN] Failed to generate gradle wrapper. Falling back to direct global gradle invocation...
+                            echo [WARN] Failed to generate local gradle wrapper. Falling back to direct global gradle command...
                             call gradle assembleRelease --no-daemon
                             exit /b %ERRORLEVEL%
                         )
+                    )
+
+                    echo [WARN] Global gradle not found in PATH. Attempting to download Gradle Wrapper v8.2.0 for maximum resilience...
+                    if not exist gradle\\wrapper mkdir gradle\\wrapper
+
+                    echo [INFO] Downloading gradlew.bat...
+                    curl -k -sS -L -o gradlew.bat https://raw.githubusercontent.com/gradle/gradle/v8.2.0/gradlew.bat || powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/gradle/gradle/v8.2.0/gradlew.bat' -OutFile 'gradlew.bat'"
+
+                    echo [INFO] Downloading gradle-wrapper.jar...
+                    curl -k -sS -L -o gradle\\wrapper\\gradle-wrapper.jar https://github.com/gradle/gradle/raw/v8.2.0/gradle/wrapper/gradle-wrapper.jar || powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/gradle/gradle/raw/v8.2.0/gradle/wrapper/gradle-wrapper.jar' -OutFile 'gradle\\wrapper\\gradle-wrapper.jar'"
+
+                    echo [INFO] Creating gradle-wrapper.properties...
+                    (
+                        echo distributionBase=GRADLE_USER_HOME
+                        echo distributionPath=wrapper/dists
+                        echo distributionUrl=https\\://services.gradle.org/distributions/gradle-8.2-bin.zip
+                        echo zipStoreBase=GRADLE_USER_HOME
+                        echo zipStorePath=wrapper/dists
+                    ) > gradle\\wrapper\\gradle-wrapper.properties
+
+                    if exist gradlew.bat (
+                        echo [INFO] Gradle wrapper downloaded successfully. Building release APK...
+                        call gradlew.bat assembleRelease --no-daemon --stacktrace
+                        exit /b %ERRORLEVEL%
                     ) else (
-                        echo [ERROR] Build Failure: Neither local gradlew.bat nor global 'gradle' tool was found in the environment PATH.
+                        echo [ERROR] Build Failure: Neither local gradlew.bat, global gradle, nor wrapper download was successful.
                         echo [ERROR] Please verify that Java, Gradle, and the Android SDK are installed and configured on the build agent.
                         exit /b 1
                     )
@@ -115,6 +139,24 @@ pipeline {
 
 void updateGitHubCommitStatus(String state, String description) {
     def context = 'Jenkins/PAIOS-Android'
+    
+    // Resolve dynamic Repo Owner and Repo Name if not already overridden
+    def repoOwner = env.REPO_OWNER ?: 'adsecurto-boop'
+    def repoName = env.REPO_NAME ?: 'PAIOS-4.3'
+    
+    try {
+        def remoteUrl = bat(script: 'git config --get remote.origin.url', returnStdout: true).trim()
+        // Matches e.g., https://github.com/adsecurto-boop/PAIOS-4.3.git or git@github.com:adsecurto-boop/PAIOS-4.3.git
+        def matcher = remoteUrl =~ /(?:github\.com[:\/])([^\/]+)\/([^\/\.]+?)(?:\.git)?\s*$/
+        if (matcher) {
+            repoOwner = matcher[0][1].trim()
+            repoName  = matcher[0][2].trim()
+            echo "Dynamically resolved repository from origin: ${repoOwner}/${repoName}"
+        }
+    } catch (Exception e) {
+        echo "Could not dynamically resolve repository: ${e.message}. Using default: ${repoOwner}/${repoName}"
+    }
+
     def commitSha = env.GIT_COMMIT
     if (!commitSha) {
         try {
@@ -133,7 +175,7 @@ void updateGitHubCommitStatus(String state, String description) {
                 def payload = """{\\"state\\": \\"${state.toLowerCase()}\\", \\"target_url\\": \\"${targetUrl}\\", \\"description\\": \\"${description}\\", \\"context\\": \\"${context}\\"}"""
                 
                 try {
-                    bat "curl -f -X POST -H \"Authorization: token %GITHUB_TOKEN%\" -H \"Accept: application/vnd.github.v3+json\" -H \"Content-Type: application/json\" -d \"${payload}\" https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/statuses/${commitSha}"
+                    bat "curl -f -X POST -H \"Authorization: token %GITHUB_TOKEN%\" -H \"Accept: application/vnd.github.v3+json\" -H \"Content-Type: application/json\" -d \"${payload}\" https://api.github.com/repos/${repoOwner}/${repoName}/statuses/${commitSha}"
                 } catch (Exception e) {
                     echo "Warning: Failed to send status update to GitHub: ${e.message}"
                 }
