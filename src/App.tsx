@@ -46,9 +46,15 @@ import { MobileBottomNav } from './components/MobileBottomNav';
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTab>(NavTab.TODAY);
 
-  // Auth & Session State
-  const [currentUser, setCurrentUser] = useState<PaiosUser | null>(null);
-  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  // Auth & Session State (Defaulting to local owner session for unblocked local-first access)
+  const defaultLocalUser: PaiosUser = {
+    uid: 'paios_local_owner',
+    email: 'owner@paios.local',
+    displayName: 'PAIOS Owner',
+  };
+
+  const [currentUser, setCurrentUser] = useState<PaiosUser>(defaultLocalUser);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(false);
 
   // Desktop Window Controls State
   const [isMaximized, setIsMaximized] = useState(true);
@@ -133,20 +139,20 @@ export const App: React.FC = () => {
     let cloudUnsub: (() => void) | null = null;
 
     const unsubAuth = onAuthChange((user) => {
-      setCurrentUser(user);
-      setIsAuthLoading(false);
-
       if (user) {
+        setCurrentUser(user);
         if (cloudUnsub) cloudUnsub();
         cloudUnsub = listenToCloudData(user.uid, () => {
           reloadState();
         });
       } else {
+        setCurrentUser(defaultLocalUser);
         if (cloudUnsub) {
           cloudUnsub();
           cloudUnsub = null;
         }
       }
+      setIsAuthLoading(false);
     });
 
     return () => {
@@ -164,7 +170,7 @@ export const App: React.FC = () => {
   const handleLogOut = async () => {
     try {
       await logOut();
-      setCurrentUser(null);
+      setCurrentUser(defaultLocalUser);
     } catch (e) {
       console.error('Logout error:', e);
     }
@@ -594,14 +600,9 @@ export const App: React.FC = () => {
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white shadow-xl shadow-blue-500/20 mb-4 animate-pulse">
           <Cpu className="w-8 h-8" />
         </div>
-        <p className="text-sm font-medium text-slate-400 font-mono tracking-wide">Initializing PAIOS Security Session...</p>
+        <p className="text-sm font-medium text-slate-400 font-mono tracking-wide">Initializing PAIOS Session...</p>
       </div>
     );
-  }
-
-  // Render AuthScreen if unauthenticated
-  if (!currentUser) {
-    return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
   }
 
   return (
