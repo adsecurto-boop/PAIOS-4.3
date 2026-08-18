@@ -1,0 +1,9 @@
+{
+  "appId": "com.paios.mobile",
+  "appName": "PAIOS Mobile",
+  "webDir": "dist",
+  "server": {
+    "url": "https://paios-4-1.vercel.app",
+    "cleartext": true
+  }
+}

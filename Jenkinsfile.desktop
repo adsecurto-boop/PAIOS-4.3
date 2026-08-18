@@ -1,0 +1,105 @@
+pipeline {
+    agent any
+
+    environment {
+        GITHUB_TOKEN = credentials('github-pat-token') // Stored GitHub Personal Access Token in Jenkins Credentials
+        REPO_OWNER   = 'adsecurto-boop'
+        REPO_NAME    = 'PAIOS-4.1'
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()
+        timeout(time: 30, unit: 'MINUTES')
+    }
+
+    triggers {
+        githubPush()
+        pollSCM('H/5 * * * *') // Fallback polling every 5 minutes if Webhook cannot reach NAT/firewall
+    }
+
+    stages {
+        stage('Notify GitHub - Pending') {
+            steps {
+                script {
+                    updateGitHubCommitStatus('PENDING', 'Desktop build in progress...')
+                }
+            }
+        }
+
+        stage('Checkout SCM') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                bat 'npm ci'
+            }
+        }
+
+        stage('Lint & Type Check') {
+            steps {
+                bat 'npm run lint'
+            }
+        }
+
+        stage('Build Electron Desktop (.exe)') {
+            steps {
+                bat 'npm run build:exe'
+            }
+        }
+
+        stage('Archive Desktop Artifacts') {
+            steps {
+                archiveArtifacts artifacts: 'dist-electron/**/*', allowEmptyArchive: false
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                updateGitHubCommitStatus('SUCCESS', 'Desktop build completed successfully!')
+            }
+            echo 'PAIOS Desktop Windows Build Completed Successfully.'
+        }
+        failure {
+            script {
+                updateGitHubCommitStatus('FAILURE', 'Desktop build failed.')
+            }
+            echo 'PAIOS Desktop Windows Build Failed.'
+        }
+    }
+}
+
+void updateGitHubCommitStatus(String state, String description) {
+    def context = 'Jenkins/PAIOS-Desktop'
+    def commitSha = env.GIT_COMMIT
+    if (!commitSha) {
+        commitSha = bat(script: 'git rev-parse HEAD', returnStdout: true).trim()
+    }
+    
+    if (env.GITHUB_TOKEN && commitSha) {
+        def targetUrl = "${env.BUILD_URL}console"
+        def payload = """{
+            "state": "${state.toLowerCase()}",
+            "target_url": "${targetUrl}",
+            "description": "${description}",
+            "context": "${context}"
+        }"""
+        
+        try {
+            bat """
+                curl -X POST ^
+                -H "Authorization: token %GITHUB_TOKEN%" ^
+                -H "Accept: application/vnd.github.v3+json" ^
+                https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/statuses/${commitSha} ^
+                -d "${payload.replace('\n', '').replace('"', '\\"')}"
+            """
+        } catch (Exception e) {
+            echo "Failed to send status update to GitHub: ${e.message}"
+        }
+    }
+}

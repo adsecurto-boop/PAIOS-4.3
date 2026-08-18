@@ -1,0 +1,17 @@
+{
+  "entities": {
+    "user_data": {
+      "title": "User Data",
+      "description": "Per-user encrypted state snapshots and sync documents",
+      "type": "object",
+      "properties": {
+        "snapshot": {
+          "type": "object"
+        },
+        "updatedAt": {
+          "type": "number"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,36 @@
+name: Build & Release PAIOS Desktop (.exe)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Web Assets & Windows Executable
+        run: npm run build:exe
+
+      - name: Archive Desktop Executable Release
+        uses: actions/upload-artifact@v4
+        with:
+          name: PAIOS-Desktop-Windows-EXE
+          path: dist-electron/PAIOS Desktop-win32-x64/
+          retention-days: 30

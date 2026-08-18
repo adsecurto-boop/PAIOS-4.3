@@ -1,0 +1,147 @@
+pipeline {
+    agent any
+
+    environment {
+        REPO_OWNER   = 'adsecurto-boop'
+        REPO_NAME    = 'PAIOS-4.2'
+        
+        // Define or default common Java and Android SDK environment variables for Windows agents
+        JAVA_HOME    = "${env.JAVA_HOME ?: 'C:\\Program Files\\Java\\jdk-17'}"
+        ANDROID_HOME = "${env.ANDROID_HOME ?: env.ANDROID_SDK_ROOT ?: 'C:\\Users\\Administrator\\AppData\\Local\\Android\\Sdk'}"
+        
+        // Update PATH to include the configured Java and Android SDK tool binaries
+        PATH         = "${env.JAVA_HOME}\\bin;${env.ANDROID_HOME}\\platform-tools;${env.ANDROID_HOME}\\tools\\bin;${env.PATH}"
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()
+        timeout(time: 30, unit: 'MINUTES')
+    }
+
+    triggers {
+        githubPush()
+        pollSCM('H/5 * * * *')
+    }
+
+    stages {
+        stage('Notify GitHub - Pending') {
+            steps {
+                script {
+                    updateGitHubCommitStatus('PENDING', 'Android APK build in progress...')
+                }
+            }
+        }
+
+        stage('Checkout SCM') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Install Node Dependencies') {
+            steps {
+                bat 'IF EXIST package-lock.json ( npm ci ) ELSE ( npm install )'
+            }
+        }
+
+        stage('Build Web Assets & Sync Capacitor') {
+            steps {
+                bat 'npm run build'
+                bat 'npx cap sync android'
+            }
+        }
+
+        stage('Assemble Android APK') {
+            steps {
+                dir('android') {
+                    bat '''
+                    @echo off
+                    echo [STATUS] Starting Android release APK compilation stage...
+                    
+                    if exist gradlew.bat (
+                        echo [INFO] gradlew.bat found. Executing gradle build...
+                        call gradlew.bat assembleRelease --no-daemon --stacktrace
+                        exit /b %ERRORLEVEL%
+                    )
+
+                    echo [WARN] gradlew.bat not found in the android directory. Checking for global 'gradle' command in PATH...
+                    where gradle >nul 2>&1
+                    if %ERRORLEVEL% equ 0 (
+                        echo [INFO] Global gradle found. Attempting to generate gradle wrapper...
+                        call gradle wrapper
+                        if exist gradlew.bat (
+                            echo [INFO] Wrapper generated successfully. Building with gradlew.bat...
+                            call gradlew.bat assembleRelease --no-daemon --stacktrace
+                            exit /b %ERRORLEVEL%
+                        ) else (
+                            echo [WARN] Failed to generate gradle wrapper. Falling back to direct global gradle invocation...
+                            call gradle assembleRelease --no-daemon
+                            exit /b %ERRORLEVEL%
+                        )
+                    ) else (
+                        echo [ERROR] Build Failure: Neither local gradlew.bat nor global 'gradle' tool was found in the environment PATH.
+                        echo [ERROR] Please verify that Java, Gradle, and the Android SDK are installed and configured on the build agent.
+                        exit /b 1
+                    )
+                    '''
+                }
+            }
+        }
+
+        stage('Archive Android APK Artifacts') {
+            steps {
+                // Archive release, debug, signed, and unsigned APKs cleanly
+                archiveArtifacts artifacts: 'android/app/build/outputs/apk/**/*.apk', allowEmptyArchive: true
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                updateGitHubCommitStatus('SUCCESS', 'Android APK build completed successfully!')
+            }
+            echo 'PAIOS Android Release APK Built Successfully.'
+        }
+        failure {
+            script {
+                updateGitHubCommitStatus('FAILURE', 'Android build failed.')
+            }
+            echo 'PAIOS Android Build Failed.'
+        }
+    }
+}
+
+void updateGitHubCommitStatus(String state, String description) {
+    def context = 'Jenkins/PAIOS-Android'
+    def commitSha = env.GIT_COMMIT
+    if (!commitSha) {
+        try {
+            commitSha = bat(script: 'git rev-parse HEAD', returnStdout: true).trim()
+        } catch (Exception e) {
+            echo "Could not parse GIT_COMMIT from environment or git command: ${e.message}"
+            return
+        }
+    }
+    
+    try {
+        withCredentials([string(credentialsId: 'github-pat-token', variable: 'GITHUB_TOKEN')]) {
+            if (env.GITHUB_TOKEN && commitSha) {
+                def targetUrl = "${env.BUILD_URL}console"
+                // Correctly double-escape double quotes for cmd.exe interpretation
+                def payload = """{\\"state\\": \\"${state.toLowerCase()}\\", \\"target_url\\": \\"${targetUrl}\\", \\"description\\": \\"${description}\\", \\"context\\": \\"${context}\\"}"""
+                
+                try {
+                    bat "curl -f -X POST -H \"Authorization: token %GITHUB_TOKEN%\" -H \"Accept: application/vnd.github.v3+json\" -H \"Content-Type: application/json\" -d \"${payload}\" https://api.github.com/repos/${env.REPO_OWNER}/${env.REPO_NAME}/statuses/${commitSha}"
+                } catch (Exception e) {
+                    echo "Warning: Failed to send status update to GitHub: ${e.message}"
+                }
+            } else {
+                echo "Warning: GITHUB_TOKEN or commitSha not available. Skipping GitHub status notification."
+            }
+        }
+    } catch (Exception e) {
+        echo "Warning: 'github-pat-token' credentials could not be loaded or are missing in Jenkins. Skipping status notification. Error: ${e.message}"
+    }
+}

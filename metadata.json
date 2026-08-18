@@ -1,0 +1,6 @@
+{
+  "name": "PAIOS",
+  "description": "Personal AI Operating System for time tracking, tasks, learning, reflection, and intelligent productivity.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
