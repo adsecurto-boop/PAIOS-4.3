@@ -4,6 +4,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.webkit.*
 import android.widget.ProgressBar
@@ -15,8 +16,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
-    private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
-    private val firestore: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
+    private var auth: FirebaseAuth? = null
+    private var firestore: FirebaseFirestore? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,7 +34,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(frameLayout)
 
         setupWebView()
-        setupFirestoreSync()
+        initializeFirebaseAndSync()
 
         // Load hosted PAIOS app URL
         val appUrl = "https://ais-dev-4nf3lnfptlp5sqme2hgruy-268479705234.asia-southeast1.run.app"
@@ -87,20 +88,37 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun initializeFirebaseAndSync() {
+        try {
+            auth = FirebaseAuth.getInstance()
+            firestore = FirebaseFirestore.getInstance()
+            setupFirestoreSync()
+        } catch (e: Exception) {
+            Log.e("PAIOS", "Firebase services are unconfigured or failed: ${e.message}")
+        }
+    }
+
     private fun setupFirestoreSync() {
-        auth.addAuthStateListener { firebaseAuth ->
-            val user = firebaseAuth.currentUser
-            if (user != null) {
-                // Attach Firestore listener with offline cache support
-                firestore.collection("user_data").document(user.uid)
-                    .addSnapshotListener { snapshot, e ->
-                        if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-                        val isFromCache = snapshot.metadata.isFromCache
-                        val snapshotData = snapshot.get("snapshot") as? Map<*, *> ?: return@addSnapshotListener
-                        // Native Android offline-aware sync callback
-                        println("PAIOS Firestore data updated (Is cached offline copy: $isFromCache)")
-                    }
+        val activeAuth = auth ?: return
+        val activeFirestore = firestore ?: return
+        
+        try {
+            activeAuth.addAuthStateListener { firebaseAuth ->
+                val user = firebaseAuth.currentUser
+                if (user != null) {
+                    // Attach Firestore listener with offline cache support
+                    activeFirestore.collection("user_data").document(user.uid)
+                        .addSnapshotListener { snapshot, e ->
+                            if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+                            val isFromCache = snapshot.metadata.isFromCache
+                            val snapshotData = snapshot.get("snapshot") as? Map<*, *> ?: return@addSnapshotListener
+                            // Native Android offline-aware sync callback
+                            Log.d("PAIOS", "PAIOS Firestore data updated (Is cached offline copy: $isFromCache)")
+                        }
+                }
             }
+        } catch (e: Exception) {
+            Log.e("PAIOS", "Firestore listener setup failed: ${e.message}")
         }
     }
 
