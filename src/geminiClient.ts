@@ -144,3 +144,259 @@ ${userContext || 'No context available.'}
     };
   }
 }
+
+// Client-Side Adaptive Timetable Generator
+function parseTimeToMinutes(timeStr: string): number {
+  if (!timeStr) return 615;
+  const clean = timeStr.trim().toLowerCase();
+  let hours = 0;
+  let minutes = 0;
+
+  if (clean.includes('am') || clean.includes('pm')) {
+    const isPm = clean.includes('pm');
+    const parts = clean.replace(/am|pm/g, '').trim().split(':');
+    hours = parseInt(parts[0], 10) || 0;
+    minutes = parseInt(parts[1], 10) || 0;
+    if (isPm && hours < 12) hours += 12;
+    if (!isPm && hours === 12) hours = 0;
+  } else {
+    const parts = clean.split(':');
+    hours = parseInt(parts[0], 10) || 0;
+    minutes = parseInt(parts[1], 10) || 0;
+  }
+  return hours * 60 + minutes;
+}
+
+function formatMinutesToTime(mins: number): string {
+  const norm = (mins + 24 * 60) % (24 * 60);
+  const h = Math.floor(norm / 60);
+  const m = norm % 60;
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+}
+
+export function generateClientFallbackTimetable(params: {
+  currentTimeStr: string;
+  isWorkday: boolean;
+  officeStartTime: string;
+  officeEndTime: string;
+  bedtime: string;
+}) {
+  const {
+    currentTimeStr = '10:15',
+    isWorkday = true,
+    officeStartTime = '13:00',
+    officeEndTime = '22:00',
+    bedtime = '00:00',
+  } = params;
+
+  let cursor = parseTimeToMinutes(currentTimeStr);
+  let endDayMins = parseTimeToMinutes(bedtime);
+  if (endDayMins <= cursor) {
+    endDayMins += 24 * 60;
+  }
+
+  const officeStartMins = parseTimeToMinutes(officeStartTime);
+  const officeEndMins = parseTimeToMinutes(officeEndTime);
+
+  const blocks: any[] = [];
+  let blockIdx = 1;
+
+  const addBlock = (durationMins: number, activity: string, category: string, priority: string, reason: string, goal?: string) => {
+    if (cursor >= endDayMins) return;
+    const blockEnd = Math.min(cursor + durationMins, endDayMins);
+    const dur = blockEnd - cursor;
+    if (dur <= 0) return;
+
+    blocks.push({
+      id: `client_block_${blockIdx++}`,
+      start: formatMinutesToTime(cursor),
+      end: formatMinutesToTime(blockEnd),
+      duration_minutes: dur,
+      activity,
+      category,
+      goal: goal || (category === 'Study' ? 'ISTQB Certification' : category === 'Coding' ? 'Build PAIOS' : undefined),
+      priority,
+      reason,
+      status: 'planned',
+    });
+    cursor = blockEnd;
+  };
+
+  addBlock(15, 'Freshen up / Prepare for focus', 'Personal', 'RECOVERY', 'Transition into active routine from current time');
+
+  if (isWorkday) {
+    if (cursor < officeStartMins) {
+      const timeBeforeOffice = officeStartMins - cursor;
+      if (timeBeforeOffice >= 90) {
+        addBlock(75, 'ISTQB Focused Active Recall Study', 'Study', 'HIGH', 'Top-priority learning goal before office shift', 'ISTQB Certification');
+        addBlock(15, 'Short Rest Break', 'Break', 'RECOVERY', 'Mental recovery between study and preparation');
+      }
+      if (cursor < officeStartMins - 30) {
+        addBlock(30, 'Lunch & Office Preparation', 'Personal', 'RECOVERY', 'Nutritional intake and preparation for office shift');
+      }
+      if (cursor < officeStartMins) {
+        addBlock(officeStartMins - cursor, 'Commute / Transition to Office', 'Work', 'FIXED', 'Travel and shift check-in');
+      }
+    }
+
+    if (cursor < officeEndMins) {
+      const shiftDur = officeEndMins - cursor;
+      addBlock(shiftDur, 'Office Shift', 'Work', 'FIXED', 'Required office schedule commitment');
+    }
+
+    if (cursor < endDayMins) {
+      addBlock(30, 'Commute Home & Dinner', 'Personal', 'RECOVERY', 'Post-work recovery and meal');
+      if (endDayMins - cursor >= 90) {
+        addBlock(45, 'PAIOS Architecture & Testing', 'Coding', 'HIGH', 'Daily engineering sprint for career and skills', 'Build PAIOS');
+        addBlock(15, 'Short Rest Break', 'Break', 'RECOVERY', 'Relaxation break');
+      }
+    }
+  } else {
+    addBlock(90, 'ISTQB Active Recall & Mock Tests', 'Study', 'HIGH', 'Deep learning block using spaced repetition', 'ISTQB Certification');
+    addBlock(15, 'Hydration & Stretch Break', 'Break', 'RECOVERY', 'Short mental rest');
+    addBlock(45, 'Lunch & Family Time', 'Personal', 'RECOVERY', 'Nutritional meal and relaxation');
+    addBlock(90, 'PAIOS Development & Automation', 'Coding', 'HIGH', 'Hands-on engineering', 'Build PAIOS');
+    addBlock(15, 'Rest & Recovery Break', 'Break', 'RECOVERY', 'Recovery time');
+  }
+
+  if (endDayMins - cursor >= 45) {
+    const remainingBeforeWinddown = endDayMins - cursor - 45;
+    if (remainingBeforeWinddown > 0) {
+      addBlock(remainingBeforeWinddown, 'Flexible Personal Routine & Reading', 'Personal', 'OPTIONAL', 'Personal hobbies or light reading');
+    }
+    addBlock(15, 'Daily Evening Review & Tomorrow Prep', 'Personal', 'FLEXIBLE', 'Reflect on accomplishments and plan next day');
+    addBlock(30, 'Wind Down / Sleep Preparation', 'Personal', 'RECOVERY', 'Prepare mind and body for sleep at target bedtime');
+  } else if (endDayMins - cursor > 0) {
+    addBlock(endDayMins - cursor, 'Wind Down / Sleep Preparation', 'Personal', 'RECOVERY', 'Prepare for sleep at target bedtime');
+  }
+
+  return {
+    explanation: 'Generated using PAIOS client-side adaptive engine starting strictly from current time until bedtime.',
+    blocks,
+  };
+}
+
+export async function sendClientGeminiTimetable(params: {
+  userContext?: string;
+  currentTimeStr: string;
+  currentDateStr: string;
+  isWorkday: boolean;
+  officeStartTime: string;
+  officeEndTime: string;
+  bedtime: string;
+  wakeTime?: string;
+  adaptationReason?: string;
+  customApiKey?: string;
+  modelName?: string;
+}) {
+  const {
+    userContext,
+    currentTimeStr = '10:15',
+    currentDateStr,
+    isWorkday = true,
+    officeStartTime = '13:00',
+    officeEndTime = '22:00',
+    bedtime = '00:00',
+    adaptationReason,
+    customApiKey,
+  } = params;
+
+  const apiKey =
+    customApiKey ||
+    (import.meta as any).env?.VITE_GEMINI_API_KEY ||
+    (typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : undefined);
+
+  if (!apiKey) {
+    return generateClientFallbackTimetable({
+      currentTimeStr,
+      isWorkday,
+      officeStartTime,
+      officeEndTime,
+      bedtime,
+    });
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+
+    const systemInstruction = `
+You are the PAIOS Adaptive Daily Timetable Engine.
+Generate a dynamic adaptive timetable starting strictly at CURRENT TIME (${currentTimeStr}) and ending at BEDTIME (${bedtime}) for date ${currentDateStr}.
+
+Respond ONLY with a valid JSON object matching this structure (no markdown formatting outside JSON):
+{
+  "explanation": "Why this plan? (2-3 concise sentences)",
+  "blocks": [
+    {
+      "id": "block_1",
+      "start": "10:15",
+      "end": "10:30",
+      "duration_minutes": 15,
+      "activity": "Freshen up / prepare",
+      "category": "Personal",
+      "goal": "Personal Routine",
+      "priority": "RECOVERY",
+      "reason": "Transition into morning focus state",
+      "status": "planned"
+    }
+  ]
+}
+`.trim();
+
+    const promptText = `
+Generate adaptive daily timetable from CURRENT TIME (${currentTimeStr}) to BEDTIME (${bedtime}).
+Day mode: ${isWorkday ? 'WORKDAY' : 'WEEK-OFF'}.
+${adaptationReason ? `Adaptation reason: "${adaptationReason}"` : ''}
+Context: ${userContext || 'No context'}
+`.trim();
+
+    const modelCandidates = ['gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'];
+    let resultJsonText = '';
+
+    for (const targetModel of modelCandidates) {
+      try {
+        const response = await ai.models.generateContent({
+          model: targetModel,
+          contents: promptText,
+          config: {
+            systemInstruction,
+            temperature: 0.3,
+            responseMimeType: 'application/json',
+          },
+        });
+        resultJsonText = response.text || '';
+        if (resultJsonText) break;
+      } catch (err) {
+        console.warn(`Client timetable model ${targetModel} failed:`, err);
+      }
+    }
+
+    if (!resultJsonText) {
+      return generateClientFallbackTimetable({
+        currentTimeStr,
+        isWorkday,
+        officeStartTime,
+        officeEndTime,
+        bedtime,
+      });
+    }
+
+    const jsonMatch = resultJsonText.match(/\{[\s\S]*\}/);
+    const cleanJson = jsonMatch ? jsonMatch[0] : resultJsonText;
+    const parsedData = JSON.parse(cleanJson);
+
+    return {
+      explanation: parsedData.explanation || 'AI generated timetable',
+      blocks: Array.isArray(parsedData.blocks) ? parsedData.blocks : [],
+    };
+  } catch (err) {
+    console.warn('Client timetable exception, executing local fallback:', err);
+    return generateClientFallbackTimetable({
+      currentTimeStr,
+      isWorkday,
+      officeStartTime,
+      officeEndTime,
+      bedtime,
+    });
+  }
+}

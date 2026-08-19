@@ -37,7 +37,7 @@ import { SettingsScreen } from './screens/SettingsScreen';
 import { AuthScreen } from './screens/AuthScreen';
 
 import { onAuthChange, listenToCloudData, logOut, PaiosUser } from './firebase';
-import { sendClientGeminiChat } from './geminiClient';
+import { sendClientGeminiChat, sendClientGeminiTimetable } from './geminiClient';
 
 import { WindowsTitleBar } from './components/WindowsTitleBar';
 import { WindowsTaskBar } from './components/WindowsTaskBar';
@@ -364,22 +364,74 @@ export const App: React.FC = () => {
         }),
       });
 
-      const data = await res.json();
-      if (data.success && Array.isArray(data.blocks)) {
+      const contentType = res.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.blocks)) {
+          const responseObj: AdaptiveTimetableResponse = {
+            dateString: currentDateStr,
+            generatedAtTimeStr: currentTimeStr,
+            explanation: data.explanation || 'AI generated schedule',
+            blocks: data.blocks,
+          };
+          PAIOSStorage.saveAdaptiveTimetable(responseObj);
+          reloadState();
+          return;
+        }
+      }
+
+      // If server returned non-JSON HTML or failed, fall back to client-side engine
+      console.warn('Server timeline endpoint returned non-JSON/failed. Executing client-side timetable engine...');
+      const fallbackData = await sendClientGeminiTimetable({
+        userContext: contextStr,
+        currentTimeStr,
+        currentDateStr,
+        isWorkday: settings.isWorkday !== false,
+        officeStartTime: settings.officeStartTime || '13:00',
+        officeEndTime: settings.officeEndTime || '22:00',
+        bedtime: settings.bedtime || '00:00',
+        wakeTime: settings.wakeTime || '07:30',
+        adaptationReason,
+        customApiKey: settings.customApiKey,
+        modelName: settings.preferredModel,
+      });
+
+      const responseObj: AdaptiveTimetableResponse = {
+        dateString: currentDateStr,
+        generatedAtTimeStr: currentTimeStr,
+        explanation: fallbackData.explanation,
+        blocks: fallbackData.blocks,
+      };
+      PAIOSStorage.saveAdaptiveTimetable(responseObj);
+      reloadState();
+    } catch (err: any) {
+      console.warn('Timetable server fetch error, falling back to client-side timetable generator:', err);
+      try {
+        const fallbackData = await sendClientGeminiTimetable({
+          userContext: contextStr,
+          currentTimeStr,
+          currentDateStr,
+          isWorkday: settings.isWorkday !== false,
+          officeStartTime: settings.officeStartTime || '13:00',
+          officeEndTime: settings.officeEndTime || '22:00',
+          bedtime: settings.bedtime || '00:00',
+          wakeTime: settings.wakeTime || '07:30',
+          adaptationReason,
+          customApiKey: settings.customApiKey,
+          modelName: settings.preferredModel,
+        });
+
         const responseObj: AdaptiveTimetableResponse = {
           dateString: currentDateStr,
           generatedAtTimeStr: currentTimeStr,
-          explanation: data.explanation || 'AI generated schedule',
-          blocks: data.blocks,
+          explanation: fallbackData.explanation,
+          blocks: fallbackData.blocks,
         };
         PAIOSStorage.saveAdaptiveTimetable(responseObj);
         reloadState();
-      } else if (data.error) {
-        alert(`Timetable generation error: ${data.error}`);
+      } catch (fallbackErr: any) {
+        alert(`Unable to generate timetable: ${fallbackErr?.message || 'Error'}`);
       }
-    } catch (err: any) {
-      console.error('Error generating timetable:', err);
-      alert(`Unable to connect to AI Timetable server: ${err.message || 'Error'}`);
     } finally {
       setIsGeneratingTimetable(false);
     }
