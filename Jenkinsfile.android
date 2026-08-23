@@ -41,7 +41,8 @@ pipeline {
 
         stage('Install Node Dependencies') {
             steps {
-                bat 'IF EXIST package-lock.json ( npm ci ) ELSE ( npm install )'
+                echo "=== Installing Node Dependencies ==="
+                bat 'IF EXIST package-lock.json ( npm ci || npm install ) ELSE ( npm install )'
             }
         }
 
