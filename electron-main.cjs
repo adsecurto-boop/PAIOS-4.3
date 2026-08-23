@@ -130,6 +130,28 @@ function createWindow() {
   });
 }
 
+// IPC Handlers for In-App Live Sync & Auto-Update Controls
+ipcMain.handle('paios:get-version', () => {
+  return app.getVersion() || '4.3.0';
+});
+
+ipcMain.handle('paios:get-config', () => {
+  return loadConfig();
+});
+
+ipcMain.handle('paios:set-config', (event, newConfig) => {
+  saveConfig(newConfig);
+  return true;
+});
+
+ipcMain.handle('paios:reload', () => {
+  if (mainWindow) {
+    mainWindow.reload();
+    return true;
+  }
+  return false;
+});
+
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {

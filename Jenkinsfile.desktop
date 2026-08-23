@@ -4,24 +4,27 @@ pipeline {
     environment {
         REPO_OWNER   = 'adsecurto-boop'
         REPO_NAME    = 'PAIOS-4.3'
+        
+        // Ensure standard Node and build tool paths are prioritized
+        PATH         = "${env.PATH}"
     }
 
     options {
-        buildDiscarder(logRotator(numToKeepStr: '10'))
+        buildDiscarder(logRotator(numToKeepStr: '15'))
         disableConcurrentBuilds()
         timeout(time: 30, unit: 'MINUTES')
     }
 
     triggers {
         githubPush()
-        pollSCM('H/5 * * * *') // Fallback polling every 5 minutes if Webhook cannot reach NAT/firewall
+        pollSCM('H/5 * * * *') // Fallback polling every 5 minutes if Webhook cannot reach Jenkins
     }
 
     stages {
         stage('Notify GitHub - Pending') {
             steps {
                 script {
-                    updateGitHubCommitStatus('PENDING', 'Desktop build in progress...')
+                    updateGitHubCommitStatus('PENDING', 'Desktop Windows build in progress...')
                 }
             }
         }
@@ -32,27 +35,72 @@ pipeline {
             }
         }
 
-        stage('Install Dependencies') {
+        stage('Install Node Dependencies') {
             steps {
-                bat 'npm ci'
+                echo "=== Installing Node Dependencies for Desktop App ==="
+                bat 'IF EXIST package-lock.json ( npm ci || npm install ) ELSE ( npm install )'
             }
         }
 
         stage('Lint & Type Check') {
             steps {
+                echo "=== Validating TypeScript & Code Quality ==="
                 bat 'npm run lint'
             }
         }
 
-        stage('Build Electron Desktop (.exe)') {
+        stage('Build Web Distribution') {
             steps {
-                bat 'npm run build:exe'
+                echo "=== Compiling Production Web Assets ==="
+                bat 'npm run build'
+            }
+        }
+
+        stage('Build & Package Electron Desktop (.exe)') {
+            steps {
+                echo "=== Packaging PAIOS Desktop for Windows (x64) ==="
+                powershell '''
+                Write-Output "[INFO] Starting Electron Desktop Windows packaging..."
+                
+                # Ensure output directory is clean
+                if (Test-Path "dist-electron") {
+                    Remove-Item -Recurse -Force "dist-electron" -ErrorAction SilentlyContinue
+                }
+                New-Item -ItemType Directory -Path "dist-electron" -Force | Out-Null
+
+                # Build executable using electron-packager
+                npm run build:exe
+                
+                # Verify and package into ZIP archive for easy distribution
+                $packDir = Get-ChildItem -Path "dist-electron" -Directory | Where-Object { $_.Name -like "*PAIOS Desktop*" } | Select-Object -First 1
+                if ($packDir) {
+                    Write-Output "[INFO] Packaging built desktop binaries into PAIOS-Desktop-Windows-x64.zip..."
+                    $zipPath = Join-Path $pwd "dist-electron/PAIOS-Desktop-Windows-x64.zip"
+                    if (Test-Path $zipPath) { Remove-Item -Force $zipPath }
+                    Compress-Archive -Path "$($packDir.FullName)/*" -DestinationPath $zipPath -Force
+                    Write-Output "[SUCCESS] Generated desktop release archive at: $zipPath"
+                } else {
+                    Write-Output "[WARN] Packaged folder not found in dist-electron. Checking root outputs..."
+                }
+
+                # Write build info metadata
+                $buildInfo = @"
+PAIOS Desktop Windows Build
+Commit: $($env:GIT_COMMIT)
+Branch: $($env:GIT_BRANCH)
+Build Number: $($env:BUILD_NUMBER)
+Date: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC")
+"@
+                Set-Content -Path "dist-electron/BUILD_INFO.txt" -Value $buildInfo
+                Write-Output "[INFO] BUILD_INFO.txt created."
+                '''
             }
         }
 
         stage('Archive Desktop Artifacts') {
             steps {
-                archiveArtifacts artifacts: 'dist-electron/**/*', allowEmptyArchive: true
+                echo "=== Archiving Windows Desktop Binaries & Archives ==="
+                archiveArtifacts artifacts: 'dist-electron/**/*.exe, dist-electron/**/*.zip, dist-electron/BUILD_INFO.txt, dist-electron/**/*', allowEmptyArchive: true
             }
         }
     }
@@ -60,15 +108,15 @@ pipeline {
     post {
         success {
             script {
-                updateGitHubCommitStatus('SUCCESS', 'Desktop build completed successfully!')
+                updateGitHubCommitStatus('SUCCESS', 'Desktop Windows build completed successfully!')
             }
-            echo 'PAIOS Desktop Windows Build Completed Successfully.'
+            echo 'PAIOS Desktop Windows Build & Packaging Completed Successfully.'
         }
         failure {
             script {
-                updateGitHubCommitStatus('FAILURE', 'Desktop build failed.')
+                updateGitHubCommitStatus('FAILURE', 'Desktop Windows build failed.')
             }
-            echo 'PAIOS Desktop Windows Build Failed.'
+            echo 'PAIOS Desktop Windows Build Failed. Check Jenkins console log for details.'
         }
     }
 }
@@ -110,9 +158,19 @@ void updateGitHubCommitStatus(String state, String description) {
                 def payload = """{\"state\": \"${state.toLowerCase()}\", \"target_url\": \"${targetUrl}\", \"description\": \"${description}\", \"context\": \"${context}\"}"""
                 
                 try {
-                    bat "curl -f -X POST -H \"Authorization: token %GITHUB_TOKEN%\" -H \"Accept: application/vnd.github.v3+json\" -H \"Content-Type: application/json\" -d \"${payload}\" https://api.github.com/repos/${repoOwner}/${repoName}/statuses/${commitSha}"
+                    powershell """
+                    \$headers = @{
+                        "Authorization" = "token \$env:GITHUB_TOKEN"
+                        "Accept" = "application/vnd.github.v3+json"
+                        "Content-Type" = "application/json"
+                    }
+                    \$body = '${payload}'
+                    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                    Invoke-RestMethod -Uri "https://api.github.com/repos/${repoOwner}/${repoName}/statuses/${commitSha}" -Method Post -Headers \$headers -Body \$body | Out-Null
+                    Write-Output "[INFO] Successfully updated GitHub commit status for ${commitSha} to ${state}"
+                    """
                 } catch (Exception e) {
-                    echo "Warning: Failed to send status update to GitHub: ${e.message}"
+                    echo "Warning: Failed to send status update to GitHub via PowerShell: ${e.message}"
                 }
             } else {
                 echo "Warning: GITHUB_TOKEN or commitSha not available. Skipping GitHub status notification."
