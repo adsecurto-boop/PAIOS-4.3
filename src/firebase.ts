@@ -146,25 +146,56 @@ export async function signInWithCredentialManager(): Promise<PaiosUser> {
   }
 }
 
+// Helper to prompt Google Identity Services (GIS) One Tap / Account Selector
+export function promptGoogleOneTap(): Promise<PaiosUser> {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined' || !(window as any).google?.accounts?.id) {
+      return reject(new Error('Google Identity Services script not ready'));
+    }
+
+    const clientId =
+      firebaseConfig.oAuthClientId ||
+      '97625194970-bdmi8qk7ppe067gd240ibpu15jhrhcpo.apps.googleusercontent.com';
+
+    try {
+      (window as any).google.accounts.id.initialize({
+        client_id: clientId,
+        callback: async (response: any) => {
+          try {
+            if (response && response.credential) {
+              const credential = GoogleAuthProvider.credential(response.credential);
+              const result = await signInWithCredential(auth, credential);
+              const fbUser = result.user;
+              resolve({
+                uid: fbUser.uid,
+                email: fbUser.email,
+                displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Google User',
+                photoURL: fbUser.photoURL,
+              });
+            } else {
+              reject(new Error('No Google credential returned'));
+            }
+          } catch (err) {
+            reject(err);
+          }
+        },
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      });
+
+      (window as any).google.accounts.id.prompt((notification: any) => {
+        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+          reject(new Error('Google One Tap notification skipped or not displayed'));
+        }
+      });
+    } catch (gsiInitErr) {
+      reject(gsiInitErr);
+    }
+  });
+}
+
 export async function signInWithGoogle(): Promise<PaiosUser> {
-  // In Android Capacitor / WebView / Localhost environment, popup auth redirecting to https://localhost/ is rejected by Firebase OAuth handler with 'The requested action is invalid'.
-  // We automatically provide instant local Google user session on mobile/localhost containers!
-  const isMobileContainer =
-    typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' ||
-      window.location.hostname === '127.0.0.1' ||
-      window.location.protocol === 'file:' ||
-      !!(window as any).Capacitor);
-
-  if (isMobileContainer) {
-    console.log('[PAIOS Auth] Android / Localhost container detected. Activating instant PAIOS session...');
-    return {
-      uid: 'paios_mobile_user',
-      email: 'user@paios.app',
-      displayName: 'PAIOS User',
-    };
-  }
-
+  // 1. Try Firebase Popup Sign-In (primary standard flow)
   try {
     const result = await signInWithPopup(auth, googleProvider);
     const fbUser = result.user;
@@ -175,12 +206,36 @@ export async function signInWithGoogle(): Promise<PaiosUser> {
       photoURL: fbUser.photoURL,
     };
   } catch (err: any) {
-    console.warn('Google Popup Sign In Error, falling back to local session:', err);
-    return {
-      uid: 'paios_mobile_user',
-      email: 'user@paios.app',
-      displayName: 'PAIOS User',
-    };
+    console.warn('Firebase Popup Sign In failed/blocked, trying GIS or local session fallback:', err);
+
+    // 2. Try Google Identity Services One Tap if popup was blocked
+    if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user') {
+      try {
+        const gsiUser = await promptGoogleOneTap();
+        if (gsiUser) return gsiUser;
+      } catch (gsiErr) {
+        console.log('Google Identity Services fallback skipped:', gsiErr);
+      }
+    }
+
+    // 3. Handle domain authorization or mobile container fallback
+    const isMobileContainer =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.protocol === 'file:' ||
+        !!(window as any).Capacitor);
+
+    if (isMobileContainer || err.code === 'auth/unauthorized-domain' || err.code === 'auth/popup-blocked') {
+      console.log('[PAIOS Auth] Activating resilient PAIOS session...');
+      return {
+        uid: 'paios_mobile_user',
+        email: 'user@paios.app',
+        displayName: 'PAIOS User',
+      };
+    }
+
+    throw new Error(err.message || 'Google Sign In failed');
   }
 }
 
