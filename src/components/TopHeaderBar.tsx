@@ -1,7 +1,9 @@
-import React from 'react';
-import { Search, Sun, Moon, Settings, Cpu, LogOut } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, Sun, Moon, Settings, Cpu, LogOut, Bell, Compass } from 'lucide-react';
 import { CloudSyncBanner } from './CloudSyncBanner';
+import { AutoUpdateSyncBanner } from './AutoUpdateSyncBanner';
 import { PaiosUser } from '../firebase';
+import { getNotificationsHistory } from '../utils/notifications';
 
 interface TopHeaderBarProps {
   userName?: string;
@@ -11,7 +13,9 @@ interface TopHeaderBarProps {
   onOpenCheckIn: () => void;
   onOpenReview: () => void;
   onOpenSettings: () => void;
+  onOpenNotifications?: () => void;
   onSyncComplete?: () => void;
+  onOpenTour?: () => void;
 }
 
 export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
@@ -21,8 +25,23 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
   onOpenCheckIn,
   onOpenReview,
   onOpenSettings,
+  onOpenNotifications,
   onSyncComplete,
+  onOpenTour,
 }) => {
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const checkUnread = () => {
+    const history = getNotificationsHistory();
+    setUnreadCount(history.filter((n) => !n.read).length);
+  };
+
+  useEffect(() => {
+    checkUnread();
+    window.addEventListener('paios_notification_change', checkUnread);
+    return () => window.removeEventListener('paios_notification_change', checkUnread);
+  }, []);
+
   return (
     <header className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur-md border-b border-slate-800/80 px-3 py-2 sm:px-4 sm:py-2.5 text-slate-100 shadow-sm pt-[env(safe-area-inset-top,0px)]">
       <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
@@ -39,6 +58,34 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
         {/* Streamlined Interactive Tools Header Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar">
           <CloudSyncBanner compact onSyncComplete={onSyncComplete} />
+          <AutoUpdateSyncBanner compact />
+
+          {onOpenTour && (
+            <button
+              onClick={onOpenTour}
+              className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-medium transition-colors shrink-0 min-h-[38px]"
+              title="Launch Setup Tour Guide & AI Assistant"
+            >
+              <Compass className="w-4 h-4 text-cyan-400" />
+              <span className="hidden lg:inline">Setup Guide</span>
+            </button>
+          )}
+
+          {onOpenNotifications && (
+            <button
+              onClick={onOpenNotifications}
+              className="p-2 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors border border-slate-700/60 shrink-0 min-h-[38px] min-w-[38px] flex items-center justify-center relative"
+              title="Notifications"
+              aria-label="Notifications"
+            >
+              <Bell className="w-4 h-4" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+          )}
 
           <button
             onClick={onOpenSearch}

@@ -16,6 +16,41 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', app: 'PAIOS' });
 });
 
+// Server-side Application Version Manifest Store
+let currentServerVersion = {
+  version: '1.0.0',
+  buildTimestamp: 1787463500000,
+  gitCommit: 'c9f81a2',
+  releaseNotes: 'PAIOS Production Build - Auto-Update & Cross-Device Sync Ready',
+  mandatory: false,
+};
+
+// API Endpoint: Get Version Manifest
+app.get('/api/version', (_req, res) => {
+  res.json(currentServerVersion);
+});
+
+// API Endpoint: Trigger / Publish New Version (for Git commits and auto-update testing)
+app.post('/api/version/publish', (req, res) => {
+  const { version, gitCommit, releaseNotes, mandatory } = req.body || {};
+  const nextVersion = version || `1.0.${Math.floor(Math.random() * 90) + 10}`;
+  const nextCommit = gitCommit || `commit_${Math.random().toString(36).substring(2, 8)}`;
+  
+  currentServerVersion = {
+    version: nextVersion,
+    buildTimestamp: Date.now(),
+    gitCommit: nextCommit,
+    releaseNotes: releaseNotes || 'Latest Git commit build published with performance and sync enhancements.',
+    mandatory: Boolean(mandatory),
+  };
+
+  res.json({
+    success: true,
+    message: 'New PAIOS version published successfully!',
+    serverVersion: currentServerVersion,
+  });
+});
+
 // Cross-Device REST Sync API Store
 interface SyncRecord {
   snapshot: Record<string, any>;

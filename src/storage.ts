@@ -293,6 +293,10 @@ const initialSettings: UserSettings = {
   themeMode: 'DARK',
   morningNotificationEnabled: true,
   eveningNotificationEnabled: true,
+  dailySummaryEnabled: true,
+  dailySummaryTime: '21:00',
+  morningCheckInTime: '08:00',
+  eveningReviewTime: '21:30',
   officeStartTime: '13:00',
   officeEndTime: '22:00',
   bedtime: '00:00',
@@ -717,6 +721,9 @@ export const storage = {
         type: 'ACTIVITY',
       });
     }
+  },
+  getActivities(): ActivityLog[] {
+    return this.getAllActivities();
   },
   getAllActivities(): ActivityLog[] {
     return load(STORAGE_KEYS.ACTIVITIES, []);

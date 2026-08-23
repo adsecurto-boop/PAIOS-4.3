@@ -209,6 +209,10 @@ export interface UserSettings {
   themeMode: "SYSTEM" | "DARK" | "LIGHT";
   morningNotificationEnabled: boolean;
   eveningNotificationEnabled: boolean;
+  dailySummaryEnabled?: boolean;
+  dailySummaryTime?: string; // e.g. "21:00"
+  morningCheckInTime?: string; // e.g. "08:00"
+  eveningReviewTime?: string; // e.g. "21:30"
   preferredModel?: string;
   officeStartTime?: string; // e.g. "13:00"
   officeEndTime?: string;   // e.g. "22:00"
@@ -216,6 +220,9 @@ export interface UserSettings {
   wakeTime?: string;        // e.g. "07:30"
   isWorkday?: boolean;      // true for workday shift, false for week-off
   goals?: string[];         // User long-term goals
+  onboardingCompleted?: boolean; // Has user completed the initial setup tour?
+  autoUpdateOnCommit?: boolean;  // Automatically sync/update when git commits occur
+  gitCommitVersion?: string;    // Current Git commit hash/timestamp version
 }
 
 export type TimetablePriority = "FIXED" | "HIGH" | "FLEXIBLE" | "OPTIONAL" | "RECOVERY";

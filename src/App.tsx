@@ -13,7 +13,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { NavTab, ActivityLog, Task, TimelineEntry, StudyCard, JournalEntry, MorningCheckIn, EveningReview, AiChatMessage, UserSettings, SearchResults, Medication, DoseEvent, DoseStatus, RefillInventory, VitalSign, DoctorContact, Appointment, AdaptiveTimetableResponse, TimetableStatus } from './types';
-import { PAIOSStorage, getTodayDateString } from './storage';
+import { PAIOSStorage, getTodayDateString, getStartOfDayMillis } from './storage';
 import { TopHeaderBar } from './components/TopHeaderBar';
 import { MiniTimerPlayer } from './components/MiniTimerPlayer';
 import { StartActivityModal } from './components/StartActivityModal';
@@ -24,6 +24,12 @@ import { ReviewModal } from './components/ReviewModal';
 import { TaskModal } from './components/TaskModal';
 import { StudyCardModal } from './components/StudyCardModal';
 import { SearchModal } from './components/SearchModal';
+
+import { NotificationCenterModal } from './components/NotificationCenterModal';
+import { SetupWizardModal } from './components/SetupWizardModal';
+import { UpdatePromptModal } from './components/UpdatePromptModal';
+import { dispatchNotification } from './utils/notifications';
+import { initBackgroundVersionChecker, onVersionUpdateAvailable, VersionManifest } from './utils/versionCheck';
 
 import { TodayScreen } from './screens/TodayScreen';
 import { TimelineScreen } from './screens/TimelineScreen';
@@ -38,6 +44,7 @@ import { AuthScreen } from './screens/AuthScreen';
 
 import { onAuthChange, listenToCloudData, logOut, PaiosUser } from './firebase';
 import { sendClientGeminiChat, sendClientGeminiTimetable } from './geminiClient';
+import { exportAndShareBackup } from './utils/exportShare';
 
 import { WindowsTitleBar } from './components/WindowsTitleBar';
 import { WindowsTaskBar } from './components/WindowsTaskBar';
@@ -58,6 +65,7 @@ export const App: React.FC = () => {
 
   // Storage State
   const [activeActivity, setActiveActivity] = useState<ActivityLog | null>(null);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [timelineEntries, setTimelineEntries] = useState<TimelineEntry[]>([]);
   const [studyCards, setStudyCards] = useState<StudyCard[]>([]);
@@ -96,6 +104,10 @@ export const App: React.FC = () => {
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showStudyCardModal, setShowStudyCardModal] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [showSetupWizardModal, setShowSetupWizardModal] = useState(false);
+  const [showUpdatePromptModal, setShowUpdatePromptModal] = useState(false);
+  const [latestServerManifest, setLatestServerManifest] = useState<VersionManifest | null>(null);
 
   // Live Timer State for MiniTimerPlayer
   const [elapsedTimerSeconds, setElapsedTimerSeconds] = useState(0);
@@ -103,6 +115,7 @@ export const App: React.FC = () => {
   // Reload state helper
   const reloadState = () => {
     setActiveActivity(PAIOSStorage.getActiveActivity());
+    setActivityLogs(PAIOSStorage.getActivities());
     setTasks(PAIOSStorage.getTasks());
     setTimelineEntries(PAIOSStorage.getTimelineEntries());
     setStudyCards(PAIOSStorage.getStudyCards());
@@ -126,8 +139,155 @@ export const App: React.FC = () => {
       reloadState();
     };
     window.addEventListener('paios_storage_change', handleStorageChange);
-    return () => window.removeEventListener('paios_storage_change', handleStorageChange);
+
+    // Initialize Service Worker & Background Version Manifest Checker at launch
+    initBackgroundVersionChecker();
+    const unsubscribeUpdate = onVersionUpdateAvailable((manifest) => {
+      setLatestServerManifest(manifest);
+      setShowUpdatePromptModal(true);
+    });
+
+    return () => {
+      window.removeEventListener('paios_storage_change', handleStorageChange);
+      unsubscribeUpdate();
+    };
   }, []);
+
+  // Automated Schedule, Medication, Check-In & Daily Summary Notification Ticker (Every 60s)
+  useEffect(() => {
+    const firedNotifs = new Set<string>();
+
+    const checkScheduledNotifs = () => {
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const dateStr = getTodayDateString();
+
+      // 1. Medication Schedule Check
+      medications.forEach((med) => {
+        if (med.status === 'active' && med.scheduleTimes?.includes(timeStr)) {
+          const key = `med_${med.id}_${dateStr}_${timeStr}`;
+          if (!firedNotifs.has(key)) {
+            firedNotifs.add(key);
+            dispatchNotification(
+              `Medication Dose Due: ${med.brandName || med.genericName}`,
+              `Time to take ${med.dosageStrength}${med.dosageUnit} (${med.instructions || 'Scheduled Dose'}).`,
+              'MEDICATION'
+            );
+          }
+        }
+      });
+
+      // 2. Scheduled AI Timetable Blocks & Timeline Reminders
+      if (timetable && timetable.blocks) {
+        timetable.blocks.forEach((block) => {
+          if (block.start === timeStr && block.status !== 'completed') {
+            const key = `block_${block.id}_${dateStr}_${timeStr}`;
+            if (!firedNotifs.has(key)) {
+              firedNotifs.add(key);
+              dispatchNotification(
+                `AI Schedule Reminder: ${block.activity}`,
+                `Scheduled block (${block.category}) starting now (${block.start} - ${block.end}). ${block.goal ? 'Goal: ' + block.goal : ''}`,
+                'SCHEDULE'
+              );
+            }
+          }
+        });
+      }
+
+      // 3. Morning Check-In Reminder
+      const morningTargetTime = settings.morningCheckInTime || settings.wakeTime || '08:00';
+      if (settings.morningNotificationEnabled !== false && timeStr === morningTargetTime) {
+        const key = `checkin_morn_${dateStr}_${timeStr}`;
+        const hasCheckedIn = checkIns.some((c) => c.dateString === dateStr);
+        if (!firedNotifs.has(key) && !hasCheckedIn) {
+          firedNotifs.add(key);
+          dispatchNotification(
+            `Morning Check-In Reminder`,
+            `Good morning ${settings.userName || 'Alex'}! Set your top 3 goals, sleep score, and mindset for today.`,
+            'CHECKIN'
+          );
+        }
+      }
+
+      // 4. Evening Review Reminder
+      const eveningTargetTime = settings.eveningReviewTime || settings.bedtime || '21:30';
+      if (settings.eveningNotificationEnabled !== false && timeStr === eveningTargetTime) {
+        const key = `review_eve_${dateStr}_${timeStr}`;
+        const hasReviewed = reviews.some((r) => r.dateString === dateStr);
+        if (!firedNotifs.has(key) && !hasReviewed) {
+          firedNotifs.add(key);
+          dispatchNotification(
+            `Evening Reflection & Review`,
+            `Time for your daily review! Log what went well, blockers, and rate your overall day.`,
+            'CHECKIN'
+          );
+        }
+      }
+
+      // 5. Daily Insights Top-Performance Summary Notification
+      const summaryTime = settings.dailySummaryTime || '21:00';
+      if (settings.dailySummaryEnabled !== false && timeStr === summaryTime) {
+        const key = `daily_summary_${dateStr}_${timeStr}`;
+        if (!firedNotifs.has(key)) {
+          firedNotifs.add(key);
+
+          // Calculate today's top performing categories
+          const startOfToday = getStartOfDayMillis();
+          const catSeconds: Record<string, number> = {};
+          let totalSec = 0;
+
+          const currentActivities = PAIOSStorage.getActivities();
+          currentActivities.forEach((act) => {
+            if (act.startTimeMillis >= startOfToday) {
+              const sec = act.durationSeconds || 0;
+              if (sec > 0) {
+                const cat = act.category || 'Work';
+                catSeconds[cat] = (catSeconds[cat] || 0) + sec;
+                totalSec += sec;
+              }
+            }
+          });
+
+          const currentTimeline = PAIOSStorage.getTimelineEntries();
+          currentTimeline.forEach((e) => {
+            if (e.timestampMillis >= startOfToday && e.durationMinutes) {
+              const sec = e.durationMinutes * 60;
+              const cat = e.category || 'Work';
+              catSeconds[cat] = (catSeconds[cat] || 0) + sec;
+              totalSec += sec;
+            }
+          });
+
+          const sortedCats = Object.entries(catSeconds)
+            .map(([cat, sec]) => ({ cat, hrs: (sec / 3600).toFixed(1) }))
+            .sort((a, b) => parseFloat(b.hrs) - parseFloat(a.hrs));
+
+          const totalHrs = (totalSec / 3600).toFixed(1);
+          let summaryMsg = `Total Focus Today: ${totalHrs} hrs.`;
+
+          if (sortedCats.length > 0) {
+            const topStr = sortedCats
+              .slice(0, 2)
+              .map((c) => `${c.cat} (${c.hrs}h)`)
+              .join(', ');
+            summaryMsg = `Today's Top Focus: ${topStr} | Total: ${totalHrs} hrs logged. Tap to view detailed insights!`;
+          } else {
+            summaryMsg = `No focus sessions logged today yet. Great time to complete your evening review!`;
+          }
+
+          dispatchNotification(
+            `Daily Focus & Performance Summary`,
+            summaryMsg,
+            'SYSTEM'
+          );
+        }
+      }
+    };
+
+    const notifInterval = setInterval(checkScheduledNotifs, 60000);
+    checkScheduledNotifs();
+    return () => clearInterval(notifInterval);
+  }, [medications, timetable, settings, checkIns, reviews]);
 
   // Firebase Auth Session Listener & Realtime Cloud Sync
   useEffect(() => {
@@ -469,15 +629,8 @@ export const App: React.FC = () => {
     reloadState();
   };
 
-  const handleExportData = () => {
-    const backupJson = PAIOSStorage.exportBackupJson();
-    const blob = new Blob([backupJson], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `paios_backup_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleExportData = async (mode: 'share' | 'download' = 'share') => {
+    await exportAndShareBackup(mode);
   };
 
   // AI Chat Communication
@@ -760,6 +913,8 @@ export const App: React.FC = () => {
               user={currentUser}
               onLogOut={handleLogOut}
               onSyncComplete={reloadState}
+              onOpenNotifications={() => setShowNotificationModal(true)}
+              onOpenTour={() => setShowSetupWizardModal(true)}
               onOpenSearch={() => {
                 handleSearch('');
                 setShowSearchModal(true);
@@ -852,7 +1007,14 @@ export const App: React.FC = () => {
               )}
 
               {activeTab === NavTab.INSIGHTS && (
-                <InsightsScreen activityLogs={timelineEntries as any} checkIns={checkIns} reviews={reviews} />
+                <InsightsScreen
+                  activityLogs={activityLogs}
+                  activeActivity={activeActivity}
+                  timelineEntries={timelineEntries}
+                  tasks={tasks}
+                  checkIns={checkIns}
+                  reviews={reviews}
+                />
               )}
 
               {activeTab === NavTab.AI && (
@@ -881,6 +1043,7 @@ export const App: React.FC = () => {
                   onClearAllData={handleClearAllData}
                   onExportData={handleExportData}
                   onOpenExportModal={() => setShowExportModal(true)}
+                  onStartTour={() => setShowSetupWizardModal(true)}
                 />
               )}
             </main>
@@ -1005,6 +1168,29 @@ export const App: React.FC = () => {
           onDismiss={() => setShowSearchModal(false)}
         />
       )}
+
+      <NotificationCenterModal
+        isOpen={showNotificationModal}
+        onClose={() => setShowNotificationModal(false)}
+      />
+
+      <SetupWizardModal
+        isOpen={showSetupWizardModal}
+        onClose={() => setShowSetupWizardModal(false)}
+        settings={settings}
+        onUpdateSettings={handleUpdateSettings}
+        onResetAllData={handleClearAllData}
+        onCompleteTour={() => {
+          setShowSetupWizardModal(false);
+          reloadState();
+        }}
+      />
+
+      <UpdatePromptModal
+        isOpen={showUpdatePromptModal}
+        onClose={() => setShowUpdatePromptModal(false)}
+        serverManifest={latestServerManifest}
+      />
     </div>
   );
 };
