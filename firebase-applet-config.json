@@ -1,12 +1,12 @@
 {
-  "projectId": "consummate-particle-rxctm",
-  "appId": "1:455600423978:web:51ce7123c7acd41f896f53",
-  "apiKey": "AIzaSyBCZ6N8lyKgnTyjjbJN9d1I1sfHub-KV1s",
-  "authDomain": "consummate-particle-rxctm.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-paios40-d8f12791-a90e-4a39-ba20-38f58d82fad9",
-  "storageBucket": "consummate-particle-rxctm.firebasestorage.app",
-  "messagingSenderId": "455600423978",
+  "projectId": "paios-app",
+  "appId": "1:97625194970:android:94f6f1108672eec72580e3",
+  "apiKey": "AIzaSyDWFAeBPx4cqE5didGnl3bYJYndB8Ucbgk",
+  "authDomain": "paios-app.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "paios-app.firebasestorage.app",
+  "messagingSenderId": "97625194970",
   "measurementId": "",
-  "oAuthClientId": "455600423978-df1grg0ghg894skthb46cjlo54mcp49k.apps.googleusercontent.com",
+  "oAuthClientId": "97625194970-bdmi8qk7ppe067gd240ibpu15jhrhcpo.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }
