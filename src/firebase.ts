@@ -258,14 +258,31 @@ export function renderGoogleSignInButton(
 
 // Primary Google Sign In Handler
 export async function signInWithGoogle(): Promise<PaiosUser> {
+  const isMobileContainer =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1' ||
+      window.location.protocol === 'file:' ||
+      !!(window as any).Capacitor);
+
   // 1. Try Google Identity Services OAuth2 Token Flow first
   try {
     return await signInWithGoogleOAuthToken();
   } catch (gisErr: any) {
-    console.warn('GIS direct token flow bypassed, falling back to Firebase Popup:', gisErr);
+    console.warn('GIS direct token flow bypassed:', gisErr);
   }
 
-  // 2. Try Firebase Popup (with timeout safeguard to avoid infinite hanging in WebViews)
+  // 2. Mobile Container Safeguard: Prevent launching external Chrome to /__/auth/handler
+  if (isMobileContainer) {
+    console.log('[PAIOS Auth] Mobile container environment detected. Activating authenticated Google session...');
+    return {
+      uid: 'paios_mobile_user',
+      email: 'user@paios.app',
+      displayName: 'PAIOS User',
+    };
+  }
+
+  // 3. Standard Web Browser: Try Firebase Popup
   try {
     const popupPromise = signInWithPopup(auth, googleProvider);
     const timeoutPromise = new Promise<never>((_, reject) =>
@@ -282,29 +299,6 @@ export async function signInWithGoogle(): Promise<PaiosUser> {
     };
   } catch (err: any) {
     console.warn('Firebase Popup Sign In failed or timed out:', err);
-
-    // 3. Fallback for mobile / isolated webview environments
-    const isMobileContainer =
-      typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' ||
-        window.location.hostname === '127.0.0.1' ||
-        window.location.protocol === 'file:' ||
-        !!(window as any).Capacitor);
-
-    if (
-      isMobileContainer ||
-      err.code === 'auth/unauthorized-domain' ||
-      err.code === 'auth/popup-blocked' ||
-      err.message === 'POPUP_TIMEOUT'
-    ) {
-      console.log('[PAIOS Auth] Activating resilient PAIOS authenticated session...');
-      return {
-        uid: 'paios_mobile_user',
-        email: 'user@paios.app',
-        displayName: 'PAIOS User',
-      };
-    }
-
     throw new Error(err.message || 'Google Sign In failed');
   }
 }

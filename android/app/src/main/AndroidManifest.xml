@@ -40,6 +40,21 @@
                 <data android:scheme="http" android:host="localhost" />
             </intent-filter>
 
+            <!-- Intercept Firebase Auth domain callback handler deep-links -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="paios-app.firebaseapp.com" android:pathPrefix="/__/auth/handler" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="paios-app.web.app" android:pathPrefix="/__/auth/handler" />
+            </intent-filter>
+
             <!-- Custom App Scheme Callback for PAIOS Auth -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

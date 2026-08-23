@@ -1,5 +1,16 @@
 {
   "appId": "com.paios.app",
   "appName": "PAIOS",
-  "webDir": "dist"
+  "webDir": "dist",
+  "server": {
+    "allowNavigation": [
+      "accounts.google.com",
+      "*.firebaseapp.com",
+      "*.google.com",
+      "*.googleusercontent.com",
+      "paios-app.firebaseapp.com",
+      "paios-app.web.app"
+    ]
+  }
 }
+
