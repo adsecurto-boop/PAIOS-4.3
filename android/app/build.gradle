@@ -76,3 +76,12 @@ dependencies {
     implementation 'com.google.firebase:firebase-crashlytics-ktx'
     implementation 'com.google.firebase:firebase-analytics-ktx'
 }
+
+try {
+    def capBuild = file('capacitor.build.gradle')
+    if (capBuild.exists()) {
+        apply from: 'capacitor.build.gradle'
+    }
+} catch(Exception e) {
+    logger.info("capacitor.build.gradle not present or skipped")
+}

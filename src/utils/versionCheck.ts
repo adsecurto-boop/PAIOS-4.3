@@ -38,7 +38,11 @@ export function onVersionUpdateAvailable(callback: UpdateCallback): () => void {
  * Register the Service Worker in supported browser environments
  */
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
-  if ('serviceWorker' in navigator && process.env.NODE_ENV !== 'test') {
+  if (
+    typeof window !== 'undefined' &&
+    'serviceWorker' in navigator &&
+    (typeof process === 'undefined' || process.env?.NODE_ENV !== 'test')
+  ) {
     try {
       const registration = await navigator.serviceWorker.register('/sw.js', {
         scope: '/',

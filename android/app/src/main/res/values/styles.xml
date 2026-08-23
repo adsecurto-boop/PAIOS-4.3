@@ -5,5 +5,14 @@
         <item name="colorOnPrimary">#FFFFFF</item>
         <item name="android:statusBarColor">#0F172A</item>
         <item name="android:navigationBarColor">#0F172A</item>
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+    <!-- Capacitor Theme Aliases -->
+    <style name="AppTheme" parent="Theme.PAIOS" />
+    <style name="AppTheme.NoActionBar" parent="Theme.PAIOS" />
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.PAIOS">
+        <item name="android:background">@drawable/ic_launcher_background</item>
     </style>
 </resources>

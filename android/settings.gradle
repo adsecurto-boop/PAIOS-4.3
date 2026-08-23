@@ -18,3 +18,12 @@ include ':app'
 
 include ':capacitor-android'
 project(':capacitor-android').projectDir = new File('../node_modules/@capacitor/android/capacitor')
+
+try {
+    def capSettings = file('capacitor.settings.gradle')
+    if (capSettings.exists()) {
+        apply from: 'capacitor.settings.gradle'
+    }
+} catch(Exception e) {
+    logger.info("capacitor.settings.gradle not present or skipped")
+}
