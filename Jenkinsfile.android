@@ -67,27 +67,37 @@ pipeline {
                 $jsonContent = @'
 {
   "project_info": {
-    "project_number": "123456789012",
-    "project_id": "mock-project-id",
-    "storage_bucket": "mock-project-id.appspot.com"
+    "project_number": "97625194970",
+    "project_id": "paios-app",
+    "storage_bucket": "paios-app.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:123456789012:android:abcdef123456",
+        "mobilesdk_app_id": "1:97625194970:android:94f6f1108672eec72580e3",
         "android_client_info": {
           "package_name": "com.paios.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "97625194970-bdmi8qk7ppe067gd240ibpu15jhrhcpo.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "mock-api-key"
+          "current_key": "AIzaSyDWFAeBPx4cqE5didGnl3bYJYndB8Ucbgk"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "97625194970-bdmi8qk7ppe067gd240ibpu15jhrhcpo.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
@@ -96,7 +106,7 @@ pipeline {
 }
 '@
                 [System.IO.File]::WriteAllText($absolutePath, $jsonContent, [System.Text.Encoding]::UTF8)
-                Write-Output "[INFO] Unconditionally rewrote $absolutePath cleanly using native PowerShell."
+                Write-Output "[INFO] Synchronized $absolutePath with PAIOS Firebase configuration."
                 '''
             }
         }
