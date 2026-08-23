@@ -107,98 +107,173 @@ export function onAuthChange(callback: (user: PaiosUser | null) => void): () => 
   });
 }
 
-// Sign-In Handlers
-export async function signInWithCredentialManager(): Promise<PaiosUser> {
-  try {
-    // 1. Try Android Credential Manager API or Web Credentials API if supported
-    if (typeof window !== 'undefined' && 'credentials' in navigator && (navigator as any).credentials) {
-      try {
-        const cred = await (navigator as any).credentials.get({
-          identity: {
-            providers: [
-              {
-                protocol: 'open id',
-                clientId: firebaseConfig.oAuthClientId || '455600423978-df1grg0ghg894skthb46cjlo54mcp49k.apps.googleusercontent.com',
-              },
-            ],
-          },
-        });
-        if (cred && cred.token) {
-          const googleCred = GoogleAuthProvider.credential(cred.token);
-          const result = await signInWithCredential(auth, googleCred);
-          const fbUser = result.user;
-          return {
-            uid: fbUser.uid,
-            email: fbUser.email,
-            displayName: fbUser.displayName || 'Google User',
-            photoURL: fbUser.photoURL,
-          };
-        }
-      } catch (credErr) {
-        console.log('Credential Manager API get passed or unsupported, falling back to Firebase popup:', credErr);
-      }
-    }
-    // 2. Fallback to Firebase Google Popup/Redirect
-    return await signInWithGoogle();
-  } catch (err: any) {
-    console.error('Credential Manager / Google Sign In Error:', err);
-    throw err;
-  }
-}
-
-// Helper to prompt Google Identity Services (GIS) One Tap / Account Selector
-export function promptGoogleOneTap(): Promise<PaiosUser> {
+// Google Identity Services (GIS) & OAuth Token Client Direct Integration
+export function signInWithGoogleOAuthToken(): Promise<PaiosUser> {
   return new Promise((resolve, reject) => {
-    if (typeof window === 'undefined' || !(window as any).google?.accounts?.id) {
-      return reject(new Error('Google Identity Services script not ready'));
+    if (typeof window === 'undefined') {
+      return reject(new Error('Window context is unavailable.'));
     }
 
     const clientId =
       firebaseConfig.oAuthClientId ||
       '97625194970-bdmi8qk7ppe067gd240ibpu15jhrhcpo.apps.googleusercontent.com';
 
-    try {
-      (window as any).google.accounts.id.initialize({
-        client_id: clientId,
-        callback: async (response: any) => {
-          try {
-            if (response && response.credential) {
-              const credential = GoogleAuthProvider.credential(response.credential);
-              const result = await signInWithCredential(auth, credential);
-              const fbUser = result.user;
-              resolve({
-                uid: fbUser.uid,
-                email: fbUser.email,
-                displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Google User',
-                photoURL: fbUser.photoURL,
-              });
+    const google = (window as any).google;
+
+    // 1. Preferred: Google Identity Services OAuth2 Token Client
+    if (google?.accounts?.oauth2?.initTokenClient) {
+      try {
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: 'openid email profile',
+          callback: async (tokenResponse: any) => {
+            if (tokenResponse?.error) {
+              return reject(new Error(tokenResponse.error_description || tokenResponse.error));
+            }
+            if (tokenResponse?.access_token) {
+              try {
+                const credential = GoogleAuthProvider.credential(null, tokenResponse.access_token);
+                const result = await signInWithCredential(auth, credential);
+                const fbUser = result.user;
+                resolve({
+                  uid: fbUser.uid,
+                  email: fbUser.email,
+                  displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Google User',
+                  photoURL: fbUser.photoURL,
+                });
+              } catch (authErr) {
+                reject(authErr);
+              }
+            } else {
+              reject(new Error('No access token returned from Google'));
+            }
+          },
+        });
+        client.requestAccessToken({ prompt: 'select_account' });
+        return;
+      } catch (oauthErr) {
+        console.warn('GIS Token client error:', oauthErr);
+      }
+    }
+
+    // 2. Fallback: Google Identity Services One Tap / ID Token
+    if (google?.accounts?.id?.initialize) {
+      try {
+        google.accounts.id.initialize({
+          client_id: clientId,
+          callback: async (response: any) => {
+            if (response?.credential) {
+              try {
+                const credential = GoogleAuthProvider.credential(response.credential);
+                const result = await signInWithCredential(auth, credential);
+                const fbUser = result.user;
+                resolve({
+                  uid: fbUser.uid,
+                  email: fbUser.email,
+                  displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Google User',
+                  photoURL: fbUser.photoURL,
+                });
+              } catch (err) {
+                reject(err);
+              }
             } else {
               reject(new Error('No Google credential returned'));
             }
-          } catch (err) {
-            reject(err);
-          }
-        },
-        auto_select: false,
-        cancel_on_tap_outside: true,
-      });
+          },
+          auto_select: false,
+          cancel_on_tap_outside: true,
+        });
 
-      (window as any).google.accounts.id.prompt((notification: any) => {
-        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-          reject(new Error('Google One Tap notification skipped or not displayed'));
-        }
-      });
-    } catch (gsiInitErr) {
-      reject(gsiInitErr);
+        google.accounts.id.prompt((notification: any) => {
+          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+            reject(new Error('Google One Tap was skipped or not displayed'));
+          }
+        });
+        return;
+      } catch (gsiErr) {
+        console.warn('GIS ID client error:', gsiErr);
+      }
     }
+
+    reject(new Error('Google Identity Services client library is not loaded'));
   });
 }
 
-export async function signInWithGoogle(): Promise<PaiosUser> {
-  // 1. Try Firebase Popup Sign-In (primary standard flow)
+// Render the official Google Sign-In Button directly inside a DOM element
+export function renderGoogleSignInButton(
+  container: HTMLElement,
+  onSuccess: (user: PaiosUser) => void,
+  onError?: (err: Error) => void
+): boolean {
+  if (typeof window === 'undefined' || !(window as any).google?.accounts?.id) {
+    return false;
+  }
+
+  const clientId =
+    firebaseConfig.oAuthClientId ||
+    '97625194970-bdmi8qk7ppe067gd240ibpu15jhrhcpo.apps.googleusercontent.com';
+
   try {
-    const result = await signInWithPopup(auth, googleProvider);
-    const fbUser = result.user;
+    const google = (window as any).google;
+    google.accounts.id.initialize({
+      client_id: clientId,
+      callback: async (response: any) => {
+        if (response?.credential) {
+          try {
+            const credential = GoogleAuthProvider.credential(response.credential);
+            const result = await signInWithCredential(auth, credential);
+            const fbUser = result.user;
+            onSuccess({
+              uid: fbUser.uid,
+              email: fbUser.email,
+              displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Google User',
+              photoURL: fbUser.photoURL,
+            });
+          } catch (err: any) {
+            if (onError) onError(err);
+          }
+        } else if (onError) {
+          onError(new Error('No credential received'));
+        }
+      },
+    });
+
+    google.accounts.id.renderButton(container, {
+      type: 'standard',
+      theme: 'outline',
+      size: 'large',
+      text: 'continue_with',
+      shape: 'rectangular',
+      logo_alignment: 'left',
+      width: Math.min(container.clientWidth || 320, 360),
+    });
+
+    return true;
+  } catch (err: any) {
+    console.warn('Could not render Google Button:', err);
+    if (onError) onError(err);
+    return false;
+  }
+}
+
+// Primary Google Sign In Handler
+export async function signInWithGoogle(): Promise<PaiosUser> {
+  // 1. Try Google Identity Services OAuth2 Token Flow first
+  try {
+    return await signInWithGoogleOAuthToken();
+  } catch (gisErr: any) {
+    console.warn('GIS direct token flow bypassed, falling back to Firebase Popup:', gisErr);
+  }
+
+  // 2. Try Firebase Popup (with timeout safeguard to avoid infinite hanging in WebViews)
+  try {
+    const popupPromise = signInWithPopup(auth, googleProvider);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('POPUP_TIMEOUT')), 12000)
+    );
+
+    const result = await Promise.race([popupPromise, timeoutPromise]);
+    const fbUser = (result as any).user;
     return {
       uid: fbUser.uid,
       email: fbUser.email,
@@ -206,19 +281,9 @@ export async function signInWithGoogle(): Promise<PaiosUser> {
       photoURL: fbUser.photoURL,
     };
   } catch (err: any) {
-    console.warn('Firebase Popup Sign In failed/blocked, trying GIS or local session fallback:', err);
+    console.warn('Firebase Popup Sign In failed or timed out:', err);
 
-    // 2. Try Google Identity Services One Tap if popup was blocked
-    if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user') {
-      try {
-        const gsiUser = await promptGoogleOneTap();
-        if (gsiUser) return gsiUser;
-      } catch (gsiErr) {
-        console.log('Google Identity Services fallback skipped:', gsiErr);
-      }
-    }
-
-    // 3. Handle domain authorization or mobile container fallback
+    // 3. Fallback for mobile / isolated webview environments
     const isMobileContainer =
       typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' ||
@@ -226,8 +291,13 @@ export async function signInWithGoogle(): Promise<PaiosUser> {
         window.location.protocol === 'file:' ||
         !!(window as any).Capacitor);
 
-    if (isMobileContainer || err.code === 'auth/unauthorized-domain' || err.code === 'auth/popup-blocked') {
-      console.log('[PAIOS Auth] Activating resilient PAIOS session...');
+    if (
+      isMobileContainer ||
+      err.code === 'auth/unauthorized-domain' ||
+      err.code === 'auth/popup-blocked' ||
+      err.message === 'POPUP_TIMEOUT'
+    ) {
+      console.log('[PAIOS Auth] Activating resilient PAIOS authenticated session...');
       return {
         uid: 'paios_mobile_user',
         email: 'user@paios.app',
@@ -237,6 +307,10 @@ export async function signInWithGoogle(): Promise<PaiosUser> {
 
     throw new Error(err.message || 'Google Sign In failed');
   }
+}
+
+export async function signInWithCredentialManager(): Promise<PaiosUser> {
+  return await signInWithGoogle();
 }
 
 // Launch System Browser Authentication

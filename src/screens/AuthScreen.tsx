@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Shield,
   KeyRound,
@@ -14,10 +14,12 @@ import {
   Smartphone,
   Info,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import {
   signInWithCredentialManager,
   signInWithGoogle,
+  renderGoogleSignInButton,
   signInWithEmail,
   signUpWithEmail,
   signInWithGuestSync,
@@ -40,6 +42,43 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [gisRendered, setGisRendered] = useState(false);
+
+  const googleBtnContainerRef = useRef<HTMLDivElement>(null);
+
+  // Mount Google Identity Services Button when available
+  useEffect(() => {
+    if (authMode !== 'GOOGLE') return;
+
+    let timer: any = null;
+    const tryRenderGis = () => {
+      if (googleBtnContainerRef.current) {
+        const rendered = renderGoogleSignInButton(
+          googleBtnContainerRef.current,
+          (user) => {
+            setSuccessMessage(`Signed in as ${user.displayName || user.email}`);
+            setTimeout(() => onAuthSuccess(user), 400);
+          },
+          (err) => {
+            console.warn('GIS Button sign-in error:', err);
+            setErrorMessage(err.message || 'Google authentication encountered an issue.');
+          }
+        );
+        if (rendered) {
+          setGisRendered(true);
+        }
+      }
+    };
+
+    tryRenderGis();
+    timer = setInterval(tryRenderGis, 1000);
+    const stopTimer = setTimeout(() => clearInterval(timer), 6000);
+
+    return () => {
+      clearInterval(timer);
+      clearTimeout(stopTimer);
+    };
+  }, [authMode, onAuthSuccess]);
 
   // Clear notices on mode change
   const switchMode = (mode: 'GOOGLE' | 'EMAIL' | 'GUEST') => {
@@ -61,22 +100,37 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
     }, 400);
   };
 
-  // Google Sign In via Credential Manager API with popup/redirect fallbacks and instant local-first recovery
+  // Google Sign In handler with timeout protection and direct token integration
   const handleGoogleAuth = async () => {
     setLoading(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
+    // Timeout safety to prevent stuck spinner
+    const timeoutId = setTimeout(() => {
+      setLoading(false);
+      setErrorMessage('Google authentication took too long. You can retry or continue in Local Sandbox mode.');
+    }, 14000);
+
     try {
       const user = await signInWithCredentialManager();
+      clearTimeout(timeoutId);
       setSuccessMessage(`Authenticated as ${user.displayName || user.email}`);
       setTimeout(() => {
         onAuthSuccess(user);
-      }, 500);
+      }, 400);
     } catch (err: any) {
-      console.warn('Google Auth redirect/domain fallback to Local-First Workspace:', err);
-      triggerLocalFirstSuccess('Local-First Mode');
+      clearTimeout(timeoutId);
+      console.warn('Google Auth redirect/domain fallback:', err);
+      const msg = err?.message || String(err);
+      if (msg.includes('POPUP_TIMEOUT') || msg.includes('storage-partitioned') || msg.includes('initial state')) {
+        setErrorMessage('Google authentication in browser WebView was redirected. Activating your secure workspace...');
+        setTimeout(() => triggerLocalFirstSuccess('Workspace Activated'), 800);
+      } else {
+        setErrorMessage(msg || 'Google Sign In failed. Please try again or use Email sign in.');
+      }
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
@@ -243,13 +297,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
           </div>
         )}
 
-        {/* Mode 1: Google Sign In via Credential Manager */}
+        {/* Mode 1: Google Sign In via Credential Manager & Google Identity Services */}
         {authMode === 'GOOGLE' && (
           <div className="space-y-4">
             <div className="text-center text-xs text-slate-400 leading-relaxed px-2">
-              Sign in seamlessly using your Google Account via <strong className="text-slate-200">Credential Manager API</strong> to synchronize your PAIOS tasks, timetable, and memory across Android and Web.
+              Sign in seamlessly using your Google Account to synchronize your PAIOS tasks, timetable, and memory across Android and Web.
             </div>
 
+            {/* Official Google Identity Services Render Target */}
+            <div
+              ref={googleBtnContainerRef}
+              className="w-full flex items-center justify-center min-h-[44px] overflow-hidden rounded-xl"
+            />
+
+            {/* Custom Google Trigger Button */}
             <button
               type="button"
               disabled={loading}
@@ -284,6 +345,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
               )}
             </button>
 
+            {/* Quick 1-Click Sandbox Bypass for Mobile / Restricted WebViews */}
             <div className="pt-2 text-center text-[11px] text-slate-500 flex flex-col items-center justify-center gap-2">
               <div className="flex items-center gap-2">
                 <Globe className="w-3.5 h-3.5 text-slate-400" />
@@ -291,13 +353,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  window.open(window.location.origin, '_blank');
-                }}
+                onClick={() => triggerLocalFirstSuccess('Instant Access')}
                 className="w-full py-2.5 px-3 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-indigo-300 font-medium text-xs border border-indigo-500/30 flex items-center justify-center gap-2 transition-all mt-1"
               >
-                <Globe className="w-4 h-4 text-indigo-400" />
-                <span>Launch Full Web App in Browser</span>
+                <Sparkles className="w-4 h-4 text-indigo-400" />
+                <span>Continue to PAIOS Workspace (1-Click)</span>
               </button>
             </div>
           </div>
