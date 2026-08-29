@@ -19,3 +19,4 @@ debug.keystore
 
 # Ensure Android resources, xml templates, and drawable mipmaps are NEVER ignored
 !android/app/src/main/res/**/*
+node_modules

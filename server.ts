@@ -746,6 +746,9 @@ app.all('/api/*', (req, res) => {
 
 // Setup server middleware and static serving
 async function setupMiddleware() {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
   if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
