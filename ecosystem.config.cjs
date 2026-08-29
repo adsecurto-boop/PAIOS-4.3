@@ -2,8 +2,7 @@ module.exports = {
   apps: [
     {
       name: "paios-backend",
-      script: "server.ts",
-      node_args: "--import tsx",
+      script: "dist/server.cjs",
       instances: 1,
       exec_mode: "fork",
       watch: false,
