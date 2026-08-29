@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: "paios-backend",
-      script: "node_modules/.bin/tsx",
+      script: "node_modules/tsx/dist/cli.mjs",
       args: "server.ts",
       instances: 1,
       exec_mode: "fork",
