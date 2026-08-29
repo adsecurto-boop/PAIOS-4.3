@@ -7,18 +7,23 @@ let mainWindow;
 
 // User configuration file path for auto-update & live sync
 const configPath = path.join(app.getPath('userData'), 'paios-config.json');
-const DEFAULT_LIVE_URL = 'https://paios-4-1.vercel.app';
+const DEFAULT_LIVE_URL = '';
 
 function loadConfig() {
   try {
     if (fs.existsSync(configPath)) {
       const data = fs.readFileSync(configPath, 'utf8');
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      // Ignore legacy paios-4-1 URL from older installations
+      if (parsed.liveUrl && parsed.liveUrl.includes('paios-4-1')) {
+        parsed.liveUrl = '';
+      }
+      return parsed;
     }
   } catch (err) {
     console.error('Failed to load paios-config.json:', err);
   }
-  return { liveUrl: DEFAULT_LIVE_URL, autoUpdateCheck: true };
+  return { liveUrl: '', autoUpdateCheck: true };
 }
 
 function saveConfig(config) {
