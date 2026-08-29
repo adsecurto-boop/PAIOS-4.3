@@ -128,7 +128,11 @@ export function signInWithGoogleOAuthToken(): Promise<PaiosUser> {
           scope: 'openid email profile',
           callback: async (tokenResponse: any) => {
             if (tokenResponse?.error) {
-              return reject(new Error(tokenResponse.error_description || tokenResponse.error));
+              const errDesc = tokenResponse.error_description || tokenResponse.error;
+              if (errDesc.includes('origin_mismatch') || tokenResponse.error === 'origin_mismatch') {
+                return reject(new Error(`ORIGIN_MISMATCH|${window.location.origin}`));
+              }
+              return reject(new Error(errDesc));
             }
             if (tokenResponse?.access_token) {
               try {
@@ -148,11 +152,22 @@ export function signInWithGoogleOAuthToken(): Promise<PaiosUser> {
               reject(new Error('No access token returned from Google'));
             }
           },
+          error_callback: (nonOAuthError: any) => {
+            console.warn('GIS error_callback:', nonOAuthError);
+            if (nonOAuthError?.type === 'origin_mismatch' || String(nonOAuthError?.message || '').includes('origin_mismatch')) {
+              reject(new Error(`ORIGIN_MISMATCH|${window.location.origin}`));
+            } else {
+              reject(new Error(nonOAuthError?.message || 'Google OAuth client initialization failed'));
+            }
+          },
         });
         client.requestAccessToken({ prompt: 'select_account' });
         return;
-      } catch (oauthErr) {
+      } catch (oauthErr: any) {
         console.warn('GIS Token client error:', oauthErr);
+        if (String(oauthErr?.message || '').includes('origin_mismatch')) {
+          return reject(new Error(`ORIGIN_MISMATCH|${window.location.origin}`));
+        }
       }
     }
 
@@ -190,8 +205,11 @@ export function signInWithGoogleOAuthToken(): Promise<PaiosUser> {
           }
         });
         return;
-      } catch (gsiErr) {
+      } catch (gsiErr: any) {
         console.warn('GIS ID client error:', gsiErr);
+        if (String(gsiErr?.message || '').includes('origin_mismatch')) {
+          return reject(new Error(`ORIGIN_MISMATCH|${window.location.origin}`));
+        }
       }
     }
 
@@ -251,7 +269,13 @@ export function renderGoogleSignInButton(
     return true;
   } catch (err: any) {
     console.warn('Could not render Google Button:', err);
-    if (onError) onError(err);
+    if (onError) {
+      if (String(err?.message || '').includes('origin_mismatch')) {
+        onError(new Error(`ORIGIN_MISMATCH|${window.location.origin}`));
+      } else {
+        onError(err);
+      }
+    }
     return false;
   }
 }
@@ -270,6 +294,10 @@ export async function signInWithGoogle(): Promise<PaiosUser> {
     return await signInWithGoogleOAuthToken();
   } catch (gisErr: any) {
     console.warn('GIS direct token flow bypassed:', gisErr);
+    if (String(gisErr?.message || '').startsWith('ORIGIN_MISMATCH')) {
+      // Re-throw origin mismatch so the UI can provide exact Google Cloud Console guidance
+      throw gisErr;
+    }
   }
 
   // 2. Mobile Container Safeguard: Prevent launching external Chrome to /__/auth/handler
@@ -299,6 +327,14 @@ export async function signInWithGoogle(): Promise<PaiosUser> {
     };
   } catch (err: any) {
     console.warn('Firebase Popup Sign In failed or timed out:', err);
+    const code = err?.code || '';
+    if (code === 'auth/unauthorized-domain') {
+      const currentHost = typeof window !== 'undefined' ? window.location.hostname : '';
+      throw new Error(`UNAUTHORIZED_DOMAIN|${currentHost}`);
+    }
+    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+      throw new Error('Sign-in popup was closed before completing authentication.');
+    }
     throw new Error(err.message || 'Google Sign In failed');
   }
 }

@@ -15,6 +15,12 @@ import {
   Info,
   Loader2,
   RefreshCw,
+  Copy,
+  Check,
+  ExternalLink,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import {
   signInWithCredentialManager,
@@ -43,8 +49,22 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [gisRendered, setGisRendered] = useState(false);
+  const [showOriginHelper, setShowOriginHelper] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const googleBtnContainerRef = useRef<HTMLDivElement>(null);
+
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+  const devOrigin = 'https://ais-dev-4nf3lnfptlp5sqme2hgruy-268479705234.asia-southeast1.run.app';
+  const sharedOrigin = 'https://ais-pre-4nf3lnfptlp5sqme2hgruy-268479705234.asia-southeast1.run.app';
+
+  const handleCopy = (text: string, key: string) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
+    }
+  };
 
   // Mount Google Identity Services Button when available
   useEffect(() => {
@@ -61,7 +81,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
           },
           (err) => {
             console.warn('GIS Button sign-in error:', err);
-            setErrorMessage(err.message || 'Google authentication encountered an issue.');
+            const msg = err?.message || '';
+            if (msg.includes('ORIGIN_MISMATCH') || msg.includes('origin_mismatch')) {
+              setErrorMessage('Google OAuth Error 400: origin_mismatch. Current origin is not registered in Google Cloud Console.');
+              setShowOriginHelper(true);
+            } else {
+              setErrorMessage(err.message || 'Google authentication encountered an issue.');
+            }
           }
         );
         if (rendered) {
@@ -123,7 +149,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
       clearTimeout(timeoutId);
       console.warn('Google Auth redirect/domain fallback:', err);
       const msg = err?.message || String(err);
-      if (msg.includes('POPUP_TIMEOUT') || msg.includes('storage-partitioned') || msg.includes('initial state')) {
+      if (msg.startsWith('ORIGIN_MISMATCH') || msg.includes('origin_mismatch') || msg.includes('Error 400')) {
+        setErrorMessage('Google OAuth Error 400: origin_mismatch. JavaScript Origin must be registered in Google Cloud Console.');
+        setShowOriginHelper(true);
+      } else if (msg.startsWith('UNAUTHORIZED_DOMAIN')) {
+        const domain = msg.split('|')[1] || window.location.hostname;
+        setErrorMessage(`Domain "${domain}" is not authorized in Firebase Console -> Authentication -> Settings.`);
+        setShowOriginHelper(true);
+      } else if (msg.includes('POPUP_TIMEOUT') || msg.includes('storage-partitioned') || msg.includes('initial state')) {
         setErrorMessage('Google authentication in browser WebView was redirected. Activating your secure workspace...');
         setTimeout(() => triggerLocalFirstSuccess('Workspace Activated'), 800);
       } else {
@@ -194,6 +227,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
     }
   };
 
+  const isOriginMismatchError = Boolean(
+    (errorMessage && (errorMessage.includes('origin_mismatch') || errorMessage.includes('ORIGIN_MISMATCH') || errorMessage.includes('400'))) ||
+    showOriginHelper
+  );
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center p-4 sm:p-6 relative overflow-hidden select-none">
       {/* Background Glow Accents */}
@@ -201,35 +239,35 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
       <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
 
       {/* Main Container Card */}
-      <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl relative z-10">
+      <div className="w-full max-w-lg bg-slate-900/90 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl relative z-10">
         
         {/* Header Branding */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 shadow-lg shadow-blue-500/20 mb-4">
-            <Cpu className="w-8 h-8 text-white" />
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 shadow-lg shadow-blue-500/20 mb-3">
+            <Cpu className="w-7 h-7 text-white" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-white mb-1">
-            PAIOS <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">v4.3</span>
+            PAIOS <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">v5.0</span>
           </h1>
-          <p className="text-sm text-slate-400">
-            Personal AI Operating System Authentication
+          <p className="text-xs text-slate-400">
+            Personal AI Operating System Authentication & Cloud Sync
           </p>
         </div>
 
         {/* System Capabilities Banner */}
-        <div className="mb-6 p-3 rounded-xl bg-slate-800/50 border border-slate-700/50 text-xs text-slate-300 flex items-center justify-between gap-2">
+        <div className="mb-5 p-2.5 rounded-xl bg-slate-800/50 border border-slate-700/50 text-xs text-slate-300 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>Credential Manager API Ready</span>
+            <span>Encrypted Multi-Device Sync Active</span>
           </div>
-          <span className="flex items-center gap-1 text-[10px] text-slate-400 font-mono">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            Active
+          <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-mono bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded-full">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Ready
           </span>
         </div>
 
         {/* Tab Selection */}
-        <div className="grid grid-cols-3 gap-1 bg-slate-950/60 p-1 rounded-xl border border-slate-800 mb-6 text-xs font-medium">
+        <div className="grid grid-cols-3 gap-1 bg-slate-950/60 p-1 rounded-xl border border-slate-800 mb-5 text-xs font-medium">
           <button
             type="button"
             onClick={() => switchMode('GOOGLE')}
@@ -272,36 +310,120 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
 
         {/* Alerts & Messages */}
         {errorMessage && (
-          <div className="mb-5 p-3 rounded-xl bg-red-950/60 border border-red-800/80 text-red-200 text-xs space-y-2">
+          <div className="mb-4 p-3 rounded-xl bg-rose-950/70 border border-rose-800/80 text-rose-200 text-xs space-y-2">
             <div className="flex items-start gap-2.5">
-              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-              <div className="flex-1 break-words leading-relaxed">{errorMessage}</div>
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <div className="flex-1 break-words leading-relaxed font-medium">{errorMessage}</div>
             </div>
-            {(errorMessage.includes('Domain') || errorMessage.includes('authorized')) && (
-              <button
-                type="button"
-                onClick={handleGuestAuth}
-                className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Activate Local-First Firestore Sync</span>
-              </button>
-            )}
           </div>
         )}
 
         {successMessage && (
-          <div className="mb-5 p-3 rounded-xl bg-emerald-950/60 border border-emerald-800/80 text-emerald-200 text-xs flex items-center gap-2.5">
+          <div className="mb-4 p-3 rounded-xl bg-emerald-950/70 border border-emerald-800/80 text-emerald-200 text-xs flex items-center gap-2.5">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <div className="flex-1 font-medium">{successMessage}</div>
+          </div>
+        )}
+
+        {/* Google OAuth Origin Mismatch Diagnostic Panel */}
+        {isOriginMismatchError && (
+          <div className="mb-5 p-4 rounded-xl bg-amber-950/40 border border-amber-600/60 text-xs space-y-3 shadow-inner">
+            <div className="flex items-center justify-between text-amber-300 font-semibold text-xs border-b border-amber-800/60 pb-2">
+              <span className="flex items-center gap-1.5">
+                <HelpCircle className="w-4 h-4 text-amber-400" />
+                Google Cloud Console Origin Setup
+              </span>
+              <span className="font-mono text-[10px] bg-amber-900/80 text-amber-200 border border-amber-700 px-1.5 py-0.5 rounded">
+                Error 400: origin_mismatch
+              </span>
+            </div>
+
+            <p className="text-slate-300 text-[11px] leading-relaxed">
+              Google OAuth requires the deployment URL to be added to <strong className="text-amber-200">"Authorized JavaScript origins"</strong> in Google Cloud Console for your OAuth 2.0 Client ID.
+            </p>
+
+            {/* Copyable Origins */}
+            <div className="space-y-2 pt-1">
+              <div className="bg-slate-950/90 border border-slate-800 rounded-lg p-2 flex items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <span className="text-[10px] text-slate-400 font-mono block">Current App Origin:</span>
+                  <span className="text-xs font-mono text-emerald-400 truncate block">{currentOrigin}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(currentOrigin, 'current')}
+                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-mono rounded flex items-center gap-1 shrink-0 transition-colors"
+                  title="Copy Origin URL"
+                >
+                  {copiedKey === 'current' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+                  <span>{copiedKey === 'current' ? 'Copied' : 'Copy'}</span>
+                </button>
+              </div>
+
+              {devOrigin && devOrigin !== currentOrigin && (
+                <div className="bg-slate-950/90 border border-slate-800 rounded-lg p-2 flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[10px] text-slate-400 font-mono block">Dev Preview Origin:</span>
+                    <span className="text-xs font-mono text-slate-300 truncate block">{devOrigin}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(devOrigin, 'dev')}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-mono rounded flex items-center gap-1 shrink-0 transition-colors"
+                  >
+                    {copiedKey === 'dev' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+                    <span>{copiedKey === 'dev' ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              )}
+
+              {sharedOrigin && sharedOrigin !== currentOrigin && (
+                <div className="bg-slate-950/90 border border-slate-800 rounded-lg p-2 flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[10px] text-slate-400 font-mono block">Shared App Origin:</span>
+                    <span className="text-xs font-mono text-slate-300 truncate block">{sharedOrigin}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(sharedOrigin, 'shared')}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-mono rounded flex items-center gap-1 shrink-0 transition-colors"
+                  >
+                    {copiedKey === 'shared' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+                    <span>{copiedKey === 'shared' ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Action Link & Fallback Buttons */}
+            <div className="pt-2 flex flex-col sm:flex-row gap-2">
+              <a
+                href="https://console.cloud.google.com/apis/credentials"
+                target="_blank"
+                rel="noreferrer"
+                className="flex-1 py-2 px-3 bg-amber-900/60 hover:bg-amber-800/80 text-amber-200 font-medium text-xs rounded-lg border border-amber-700/80 flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Google Cloud Credentials</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => triggerLocalFirstSuccess('Instant Sandbox')}
+                className="flex-1 py-2 px-3 bg-emerald-700 hover:bg-emerald-600 text-white font-semibold text-xs rounded-lg shadow flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Continue in Sandbox (1-Click)</span>
+              </button>
+            </div>
           </div>
         )}
 
         {/* Mode 1: Google Sign In via Credential Manager & Google Identity Services */}
         {authMode === 'GOOGLE' && (
           <div className="space-y-4">
-            <div className="text-center text-xs text-slate-400 leading-relaxed px-2">
-              Sign in seamlessly using your Google Account to synchronize your PAIOS tasks, timetable, and memory across Android and Web.
+            <div className="text-center text-xs text-slate-400 leading-relaxed px-1">
+              Sign in with your Google Account to synchronize your PAIOS tasks, timetable, and health records across devices.
             </div>
 
             {/* Official Google Identity Services Render Target */}
@@ -315,7 +437,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
               type="button"
               disabled={loading}
               onClick={handleGoogleAuth}
-              className="w-full py-3.5 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 font-semibold text-sm transition-all shadow-lg flex items-center justify-center gap-3 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed group"
+              className="w-full py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 font-semibold text-sm transition-all shadow-lg flex items-center justify-center gap-3 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed group"
             >
               {loading ? (
                 <Loader2 className="w-5 h-5 text-slate-900 animate-spin" />
@@ -345,19 +467,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
               )}
             </button>
 
-            {/* Quick 1-Click Sandbox Bypass for Mobile / Restricted WebViews */}
+            {/* Quick 1-Click Sandbox Bypass */}
             <div className="pt-2 text-center text-[11px] text-slate-500 flex flex-col items-center justify-center gap-2">
               <div className="flex items-center gap-2">
                 <Globe className="w-3.5 h-3.5 text-slate-400" />
-                <span>Cross-platform cloud synchronization</span>
+                <span>Offline-First Encrypted Database</span>
               </div>
               <button
                 type="button"
                 onClick={() => triggerLocalFirstSuccess('Instant Access')}
-                className="w-full py-2.5 px-3 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-indigo-300 font-medium text-xs border border-indigo-500/30 flex items-center justify-center gap-2 transition-all mt-1"
+                className="w-full py-2.5 px-3 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-indigo-300 font-medium text-xs border border-indigo-500/30 flex items-center justify-center gap-2 transition-all"
               >
                 <Sparkles className="w-4 h-4 text-indigo-400" />
-                <span>Continue to PAIOS Workspace (1-Click)</span>
+                <span>Launch PAIOS Workspace (1-Click Instant)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowOriginHelper(!showOriginHelper)}
+                className="text-[11px] text-slate-400 hover:text-slate-200 underline mt-1 flex items-center gap-1"
+              >
+                <span>{showOriginHelper ? 'Hide' : 'Show'} OAuth Origin Configuration Helper</span>
+                {showOriginHelper ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
               </button>
             </div>
           </div>
@@ -499,9 +630,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
       </div>
 
       {/* Footer Info */}
-      <div className="mt-8 text-center text-xs text-slate-500 relative z-10">
-        PAIOS 4.3 &bull; Encrypted Local Memory &bull; Firebase Auth Secured
+      <div className="mt-6 text-center text-xs text-slate-500 relative z-10 flex items-center gap-2">
+        <span>PAIOS v5.0</span>
+        <span>&bull;</span>
+        <span>Local-First SQLite & Firestore Cloud Sync</span>
       </div>
     </div>
   );
 };
+
+export default AuthScreen;

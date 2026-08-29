@@ -167,11 +167,21 @@ export const CloudSyncBanner: React.FC<CloudSyncBannerProps> = ({ onSyncComplete
   };
 
   const [copiedDomain, setCopiedDomain] = useState(false);
-  const copyToClipboard = (text: string) => {
+  const [copiedOriginKey, setCopiedOriginKey] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, key?: string) => {
     navigator.clipboard.writeText(text);
-    setCopiedDomain(true);
-    setTimeout(() => setCopiedDomain(false), 2000);
+    if (key) {
+      setCopiedOriginKey(key);
+      setTimeout(() => setCopiedOriginKey(null), 2000);
+    } else {
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2000);
+    }
   };
+
+  const isOriginMismatchError = Boolean(errorMsg && (errorMsg.startsWith('ORIGIN_MISMATCH|') || errorMsg.includes('origin_mismatch')));
+  const mismatchOrigin = (isOriginMismatchError && errorMsg?.startsWith('ORIGIN_MISMATCH|')) ? errorMsg.split('|')[1] : (typeof window !== 'undefined' ? window.location.origin : '');
 
   const isUnauthorizedDomainError = Boolean(errorMsg && errorMsg.startsWith('UNAUTHORIZED_DOMAIN|'));
   const unauthorizedDomain = (isUnauthorizedDomainError && errorMsg) ? errorMsg.split('|')[1] : '';
@@ -264,6 +274,85 @@ export const CloudSyncBanner: React.FC<CloudSyncBannerProps> = ({ onSyncComplete
         </div>
       )}
 
+      {isOriginMismatchError && (
+        <div className="p-4 bg-amber-950/50 border border-amber-600/70 rounded-xl space-y-3 text-xs">
+          <div className="flex items-center justify-between text-amber-300 font-bold text-sm border-b border-amber-800/60 pb-2">
+            <span className="flex items-center gap-1.5">
+              <span>⚠️ Google OAuth Error 400: origin_mismatch</span>
+            </span>
+            <span className="text-[10px] bg-amber-900/80 border border-amber-600 px-2 py-0.5 rounded font-mono">
+              Google Cloud Console
+            </span>
+          </div>
+
+          <p className="text-slate-300 text-[11px] leading-relaxed">
+            Google Identity Services requires the deployment domain to be registered under <strong className="text-amber-200">"Authorized JavaScript origins"</strong> in Google Cloud Console Credentials.
+          </p>
+
+          <div className="space-y-2 pt-1">
+            <div className="bg-slate-950/90 border border-slate-800 rounded-lg p-2 flex items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] text-slate-400 font-mono block">Current App Origin:</span>
+                <span className="text-xs font-mono text-emerald-400 truncate block">{mismatchOrigin || window.location.origin}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(mismatchOrigin || window.location.origin, 'current')}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-mono rounded flex items-center gap-1 shrink-0 transition-colors"
+              >
+                <span>{copiedOriginKey === 'current' ? 'Copied' : 'Copy'}</span>
+              </button>
+            </div>
+
+            <div className="bg-slate-950/90 border border-slate-800 rounded-lg p-2 flex items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] text-slate-400 font-mono block">Dev Preview URL:</span>
+                <span className="text-xs font-mono text-slate-300 truncate block">https://ais-dev-4nf3lnfptlp5sqme2hgruy-268479705234.asia-southeast1.run.app</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => copyToClipboard('https://ais-dev-4nf3lnfptlp5sqme2hgruy-268479705234.asia-southeast1.run.app', 'dev')}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-mono rounded flex items-center gap-1 shrink-0 transition-colors"
+              >
+                <span>{copiedOriginKey === 'dev' ? 'Copied' : 'Copy'}</span>
+              </button>
+            </div>
+
+            <div className="bg-slate-950/90 border border-slate-800 rounded-lg p-2 flex items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] text-slate-400 font-mono block">Shared App URL:</span>
+                <span className="text-xs font-mono text-slate-300 truncate block">https://ais-pre-4nf3lnfptlp5sqme2hgruy-268479705234.asia-southeast1.run.app</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => copyToClipboard('https://ais-pre-4nf3lnfptlp5sqme2hgruy-268479705234.asia-southeast1.run.app', 'shared')}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-mono rounded flex items-center gap-1 shrink-0 transition-colors"
+              >
+                <span>{copiedOriginKey === 'shared' ? 'Copied' : 'Copy'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <a
+              href="https://console.cloud.google.com/apis/credentials"
+              target="_blank"
+              rel="noreferrer"
+              className="px-3.5 py-1.5 bg-amber-800 hover:bg-amber-700 text-white font-medium text-xs rounded transition-colors flex items-center gap-1"
+            >
+              <span>Open Google Cloud Credentials</span>
+            </a>
+            <button
+              onClick={handleGuestSignIn}
+              disabled={loading}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded transition-colors"
+            >
+              Use Instant Cloud Sync
+            </button>
+          </div>
+        </div>
+      )}
+
       {isUnauthorizedDomainError && (
         <div className="p-4 bg-amber-950/50 border border-amber-700/60 rounded-xl space-y-3 text-xs">
           <div className="flex items-center justify-between text-amber-300 font-bold text-sm">
@@ -298,7 +387,7 @@ export const CloudSyncBanner: React.FC<CloudSyncBannerProps> = ({ onSyncComplete
         </div>
       )}
 
-      {errorMsg && !isUnauthorizedDomainError && (
+      {errorMsg && !isUnauthorizedDomainError && !isOriginMismatchError && (
         <div className="p-3 bg-rose-950/60 border border-rose-800/80 rounded-xl text-rose-300 text-xs">
           {errorMsg}
         </div>
