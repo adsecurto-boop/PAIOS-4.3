@@ -65,23 +65,35 @@ function createWindow() {
 
   const distIndex = path.join(__dirname, 'dist', 'index.html');
   
-  // Decide target URL: Environment Variable > Saved Live URL > Default Vercel App > Local Dist Index
+  // Target URLs
+  const devUrl = process.env.ELECTRON_START_URL || 'http://localhost:3001';
   const remoteUrl = process.env.PAIOS_REMOTE_URL || config.liveUrl || DEFAULT_LIVE_URL;
 
+  function loadLocalDist() {
+    if (fs.existsSync(distIndex)) {
+      mainWindow.loadFile(distIndex).catch((err) => {
+        console.warn('Failed to load dist/index.html:', err);
+      });
+    } else {
+      console.warn('dist/index.html not found. Run "npm run build" to create production assets.');
+    }
+  }
+
   if (process.env.NODE_ENV === 'development') {
-    mainWindow.loadURL('http://localhost:3000');
+    mainWindow.loadURL(devUrl).catch(() => {
+      // If port 3001 failed, attempt port 3000 before falling back to local files
+      mainWindow.loadURL('http://localhost:3000').catch(() => {
+        loadLocalDist();
+      });
+    });
   } else if (remoteUrl && remoteUrl.startsWith('http')) {
     console.log(`Loading PAIOS from Live Sync URL: ${remoteUrl}`);
     mainWindow.loadURL(remoteUrl).catch((err) => {
       console.warn('Failed to load remote live URL, falling back to local files:', err);
-      mainWindow.loadFile(distIndex).catch(() => {
-        mainWindow.loadURL('http://localhost:3000');
-      });
+      loadLocalDist();
     });
   } else {
-    mainWindow.loadFile(distIndex).catch(() => {
-      mainWindow.loadURL('http://localhost:3000');
-    });
+    loadLocalDist();
   }
 
   // Build application menu with Live Sync & Auto-Update tools

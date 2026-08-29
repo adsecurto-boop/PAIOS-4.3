@@ -20,7 +20,7 @@
     "build:apk": "npm run build && npx cap sync android && cd android && ./gradlew assembleDebug",
     "build:win-unpacked": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false vite build && npx electron-builder --win dir",
     "electron": "electron .",
-    "electron:dev": "cross-env NODE_ENV=development electron .",
+    "electron:dev": "cross-env NODE_ENV=development ELECTRON_START_URL=http://localhost:3001 electron .",
     "start": "node dist/server.cjs",
     "lint": "tsc --noEmit"
   },
