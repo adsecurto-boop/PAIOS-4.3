@@ -23,21 +23,30 @@ export class OfflineSyncManager {
    * Initializes application-wide network reconnection listeners.
    * Flushes offline queue automatically upon network recovery.
    */
-  static init(): void {
-    if (this.isInitialized) return;
+  static init(authTokenProvider?: () => string | null): () => void {
+    if (this.isInitialized) return () => {};
     this.isInitialized = true;
 
     if (typeof window !== 'undefined') {
-      window.addEventListener('online', () => {
+      const handleOnline = () => {
         console.log('[OfflineSyncManager] Network online detected. Triggering queue flush...');
         this.flushQueue();
-      });
+      };
+
+      window.addEventListener('online', handleOnline);
 
       // Flush queue on launch if online and queue exists
       if (navigator.onLine) {
         setTimeout(() => this.flushQueue(), 1000);
       }
+
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        this.isInitialized = false;
+      };
     }
+
+    return () => {};
   }
 
   /**
