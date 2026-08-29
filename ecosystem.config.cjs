@@ -1,23 +1,20 @@
 module.exports = {
   apps: [
     {
-      name: 'paios-backend',
-      script: 'server.ts',
-      interpreter: 'node_modules/.bin/tsx',
+      name: "paios-backend",
+      script: "node_modules/.bin/tsx",
+      args: "server.ts",
       instances: 1,
-      autorestart: true,
+      exec_mode: "fork",
       watch: false,
-      max_memory_restart: '1G',
-      env_production: {
-        NODE_ENV: 'production',
-        PORT: 3001,
-        JWT_SECRET: 'your-secure-jwt-secret',
-        DB_DIR: './data',
+      max_memory_restart: "1G",
+      env: {
+        NODE_ENV: "production",
+        PORT: 3001
       },
-      env_development: {
-        NODE_ENV: 'development',
-        PORT: 3001,
-      },
-    },
-  ],
+      error_file: "./logs/pm2-err.log",
+      out_file: "./logs/pm2-out.log",
+      time: true
+    }
+  ]
 };

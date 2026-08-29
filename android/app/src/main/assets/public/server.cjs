@@ -914,7 +914,10 @@ async function setupMiddleware() {
     });
   }
 }
-setupMiddleware();
+setupMiddleware().catch((err) => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});
 var server_default = app;
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
