@@ -153,6 +153,13 @@ export class OfflineSyncManager {
   }
 
   /**
+   * Initializes automatic online network recovery listener (alias for initAutoReconnection).
+   */
+  public static init(authTokenProvider?: () => string | null): () => void {
+    return this.initAutoReconnection(authTokenProvider);
+  }
+
+  /**
    * Initializes automatic online network recovery listener.
    */
   public static initAutoReconnection(authTokenProvider?: () => string | null): () => void {

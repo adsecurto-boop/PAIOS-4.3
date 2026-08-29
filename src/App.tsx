@@ -48,6 +48,7 @@ import { OnboardingScreen } from './screens/OnboardingScreen';
 import { onAuthChange, listenToCloudData, logOut, PaiosUser } from './firebase';
 import { sendClientGeminiChat, sendClientGeminiTimetable } from './geminiClient';
 import { exportAndShareBackup } from './utils/exportShare';
+import { OfflineSyncManager } from './core/sync/OfflineSyncManager';
 
 import { WindowsTitleBar } from './components/WindowsTitleBar';
 import { WindowsTaskBar } from './components/WindowsTaskBar';
@@ -311,6 +312,7 @@ export const App: React.FC = () => {
   // Firebase Auth Session Listener & Realtime Cloud Sync
   useEffect(() => {
     let cloudUnsub: (() => void) | null = null;
+    const cleanupOfflineSync = OfflineSyncManager.init(() => PAIOSStorage.getAuthToken());
 
     const unsubAuth = onAuthChange((user) => {
       if (user) {
@@ -339,6 +341,7 @@ export const App: React.FC = () => {
     });
 
     return () => {
+      cleanupOfflineSync();
       unsubAuth();
       if (cloudUnsub) cloudUnsub();
     };
