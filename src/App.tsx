@@ -24,6 +24,7 @@ import { ReviewModal } from './components/ReviewModal';
 import { TaskModal } from './components/TaskModal';
 import { StudyCardModal } from './components/StudyCardModal';
 import { SearchModal } from './components/SearchModal';
+import { AuthModal } from './components/AuthModal';
 
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { SetupWizardModal } from './components/SetupWizardModal';
@@ -41,6 +42,7 @@ import { AiScreen } from './screens/AiScreen';
 import { JournalScreen } from './screens/JournalScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { AuthScreen } from './screens/AuthScreen';
+import { OnboardingScreen } from './screens/OnboardingScreen';
 
 import { onAuthChange, listenToCloudData, logOut, PaiosUser } from './firebase';
 import { sendClientGeminiChat, sendClientGeminiTimetable } from './geminiClient';
@@ -57,6 +59,17 @@ export const App: React.FC = () => {
   // Auth & Session State
   const [currentUser, setCurrentUser] = useState<PaiosUser | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+
+  // Onboarding Flow State
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState<boolean>(() => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        return localStorage.getItem('paios_onboarding_completed') === 'true';
+      }
+    } catch {}
+    return false;
+  });
 
   // Desktop Window Controls State
   const [isMaximized, setIsMaximized] = useState(true);
@@ -325,9 +338,15 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  const handleAuthSuccess = (user: PaiosUser) => {
+  const handleAuthSuccess = (user: any) => {
     localStorage.setItem('paios_guest_session', 'true');
-    setCurrentUser(user);
+    const mappedUser: PaiosUser = {
+      uid: user.id || user.uid || 'usr_active',
+      email: user.email || 'user@paios.ai',
+      displayName: user.displayName || 'PAIOS User',
+    };
+    setCurrentUser(mappedUser);
+    setShowAuthModal(false);
     setActiveTab(NavTab.TODAY);
     reloadState();
   };
@@ -342,6 +361,16 @@ export const App: React.FC = () => {
       localStorage.removeItem('paios_guest_session');
       setCurrentUser(null);
     }
+  };
+
+  const handleCompleteOnboarding = () => {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('paios_onboarding_completed', 'true');
+      }
+    } catch {}
+    setHasCompletedOnboarding(true);
+    reloadState();
   };
 
   // Global Desktop Keyboard Shortcuts Listener
@@ -859,7 +888,17 @@ export const App: React.FC = () => {
     );
   }
 
-  // Render AuthScreen if unauthenticated
+  // Render OnboardingScreen if new/unauthenticated guest user encountering goal setup
+  if (!hasCompletedOnboarding) {
+    return (
+      <OnboardingScreen
+        userName={currentUser?.displayName || settings.userName || 'Alex'}
+        onCompleteOnboarding={handleCompleteOnboarding}
+      />
+    );
+  }
+
+  // Render AuthScreen if unauthenticated and guest session active is false
   if (!currentUser) {
     return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
   }
@@ -1106,11 +1145,18 @@ export const App: React.FC = () => {
       />
 
       {/* Modals */}
+      {showAuthModal && (
+        <AuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          onAuthSuccess={handleAuthSuccess}
+        />
+      )}
+
       {showExportModal && (
         <DesktopAppExportModal onDismiss={() => setShowExportModal(false)} />
       )}
 
-      {/* Modals */}
       {showStartActivityModal && (
         <StartActivityModal
           onDismiss={() => setShowStartActivityModal(false)}
