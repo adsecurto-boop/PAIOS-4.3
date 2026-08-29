@@ -156,7 +156,7 @@ export const JournalScreen: React.FC<JournalScreenProps> = ({
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-6 pb-12 safe-area-bottom safe-area-left safe-area-right">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
         <div className="flex items-center gap-3">
