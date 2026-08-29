@@ -38,10 +38,10 @@
 }
 
 /* Safe Area Inset Support */
-.safe-area-top {
+.safe-area-top, .pt-safe {
   padding-top: env(safe-area-inset-top, 0px);
 }
-.safe-area-bottom {
+.safe-area-bottom, .pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 .safe-area-left {

@@ -1,32 +1,6 @@
 import { PAIOSStorage } from '../../storage';
 import { PreContextBroker } from '../broker/PreContextBroker';
 
-export interface TimetableBlock {
-  id: string;
-  startTime?: string;
-  endTime?: string;
-  start?: string;
-  end?: string;
-  title?: string;
-  activity?: string;
-  category?: string;
-  status?: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'SKIPPED' | 'planned';
-  isAiProposed?: boolean;
-  duration_minutes?: number;
-  goal?: string;
-  priority?: string;
-  reason?: string;
-}
-
-export interface ScheduleProposal {
-  id: string;
-  generatedAt: number;
-  expiresAt: number;
-  status: 'pending' | 'accepted' | 'rejected' | 'lapsed';
-  blocks: TimetableBlock[];
-  explanation: string;
-}
-
 export interface TimetableProposal {
   id: string;
   activity: string;
@@ -41,104 +15,13 @@ export interface TimetableProposal {
   status: 'pending' | 'accepted' | 'rejected' | 'lapsed';
 }
 
-export interface TimetablePluginOptions {
-  initialSchedule?: TimetableBlock[];
-  onDispatchToPit?: (event: any) => void;
-}
-
 export class TimetablePlugin {
   private static STORAGE_KEY = 'paios_timetable_proposals';
 
-  // Instance State
-  private activeSchedule: TimetableBlock[] = [];
-  private currentProposal: ScheduleProposal | null = null;
-  private inboundPitDispatcher: ((event: any) => void) | null = null;
-
-  constructor(options?: TimetablePluginOptions) {
-    this.activeSchedule = options?.initialSchedule ? [...options.initialSchedule] : [];
-    this.inboundPitDispatcher = options?.onDispatchToPit || null;
-  }
-
-  // --- Instance Methods ---
-
-  public proposeSchedule(blocks: TimetableBlock[], explanation = ''): ScheduleProposal {
-    const now = Date.now();
-    this.currentProposal = {
-      id: `prop_${now}_${Math.random().toString(36).substring(2, 7)}`,
-      generatedAt: now,
-      expiresAt: now + 60000,
-      status: 'pending',
-      blocks: [...blocks],
-      explanation,
-    };
-    return this.currentProposal;
-  }
-
-  public checkLapse(): void {
-    if (this.currentProposal && this.currentProposal.status === 'pending') {
-      if (Date.now() >= this.currentProposal.expiresAt) {
-        this.currentProposal.status = 'lapsed';
-      }
-    }
-  }
-
-  public acceptProposal(proposalId: string): boolean {
-    this.checkLapse();
-    if (
-      this.currentProposal &&
-      this.currentProposal.id === proposalId &&
-      this.currentProposal.status === 'pending'
-    ) {
-      this.currentProposal.status = 'accepted';
-      this.activeSchedule = [...this.currentProposal.blocks];
-      return true;
-    }
-    return false;
-  }
-
-  public rejectProposal(proposalId: string): boolean {
-    this.checkLapse();
-    if (
-      this.currentProposal &&
-      this.currentProposal.id === proposalId &&
-      this.currentProposal.status === 'pending'
-    ) {
-      this.currentProposal.status = 'rejected';
-      return true;
-    }
-    return false;
-  }
-
-  public getActiveSchedule(): TimetableBlock[] {
-    return this.activeSchedule;
-  }
-
-  public getProposal(): ScheduleProposal | null {
-    this.checkLapse();
-    return this.currentProposal;
-  }
-
-  public markBlockComplete(blockId: string): void {
-    const block = this.activeSchedule.find((b) => b.id === blockId);
-    if (block) {
-      block.status = 'COMPLETED';
-    }
-
-    if (this.inboundPitDispatcher) {
-      this.inboundPitDispatcher({
-        sourcePluginId: 'timetable-plugin',
-        priority: 'medium',
-        severity: 'info',
-        payload: {
-          action: 'block_completed',
-          blockId,
-        },
-      });
-    }
-  }
-
-  // --- Static Methods ---
-
+  /**
+   * Rule B1: Creates a 60s Contextual Schedule Proposal.
+   * Auto-lapses if not accepted within 60 seconds.
+   */
   static createProposal(params: {
     activity: string;
     category?: string;
@@ -159,7 +42,7 @@ export class TimetablePlugin {
       goal: params.goal,
       priority: params.priority || 'HIGH',
       createdAtMillis: now,
-      expiresAtMillis: now + 60000,
+      expiresAtMillis: now + 60000, // 60s countdown
       status: 'pending',
     };
 
@@ -167,6 +50,7 @@ export class TimetablePlugin {
     list.unshift(proposal);
     PAIOSStorage.setItem(this.STORAGE_KEY, list);
 
+    // Dispatch PreContext PIT Event
     PreContextBroker.enqueuePIT({
       source_plugin_id: 'timetable_plugin',
       priority: 'high',
@@ -178,6 +62,9 @@ export class TimetablePlugin {
     return proposal;
   }
 
+  /**
+   * Accepts a pending proposal and applies it to the timetable.
+   */
   static acceptProposal(proposalId: string): TimetableProposal | null {
     const list = this.getProposals();
     const proposal = list.find((p) => p.id === proposalId);
@@ -189,6 +76,7 @@ export class TimetablePlugin {
     proposal.status = 'accepted';
     PAIOSStorage.setItem(this.STORAGE_KEY, list);
 
+    // Apply block to active timetable
     const currentTimetable = PAIOSStorage.getAdaptiveTimetable() || {
       dateString: new Date().toISOString().split('T')[0],
       generatedAtTimeStr: '10:00',
@@ -214,6 +102,9 @@ export class TimetablePlugin {
     return proposal;
   }
 
+  /**
+   * Rejects a pending proposal.
+   */
   static rejectProposal(proposalId: string): TimetableProposal | null {
     const list = this.getProposals();
     const proposal = list.find((p) => p.id === proposalId);
@@ -228,6 +119,9 @@ export class TimetablePlugin {
     return proposal;
   }
 
+  /**
+   * Rule B1 Auto-Lapse Engine: Checks and lapses pending proposals whose 60s window has expired.
+   */
   static checkProposalLapse(): TimetableProposal[] {
     const now = Date.now();
     const list = this.getProposals();
@@ -248,16 +142,25 @@ export class TimetablePlugin {
     return list;
   }
 
+  /**
+   * Retrieves current active/pending proposal if available.
+   */
   static getActiveProposal(): TimetableProposal | null {
     this.checkProposalLapse();
     const list = this.getProposals();
     return list.find((p) => p.status === 'pending') || null;
   }
 
+  /**
+   * Retrieves all proposals list.
+   */
   static getProposals(): TimetableProposal[] {
     return PAIOSStorage.getItem<TimetableProposal[]>(this.STORAGE_KEY, []) || [];
   }
 
+  /**
+   * Dispatches CustomEvent for UI notifications.
+   */
   private static notifyUpdate(): void {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
@@ -268,6 +171,9 @@ export class TimetablePlugin {
     }
   }
 
+  /**
+   * Resets proposal store.
+   */
   static clear(): void {
     PAIOSStorage.removeItem(this.STORAGE_KEY);
   }

@@ -267,6 +267,5 @@ export enum NavTab {
   INSIGHTS = "INSIGHTS",
   AI = "AI",
   JOURNAL = "JOURNAL",
-  PLUGINS = "PLUGINS",
   SETTINGS = "SETTINGS",
 }

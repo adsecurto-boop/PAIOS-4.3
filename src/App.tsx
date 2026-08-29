@@ -40,7 +40,6 @@ import { LearnScreen } from './screens/LearnScreen';
 import { InsightsScreen } from './screens/InsightsScreen';
 import { AiScreen } from './screens/AiScreen';
 import { JournalScreen } from './screens/JournalScreen';
-import { PluginHubScreen } from './screens/PluginHubScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { AuthScreen } from './screens/AuthScreen';
 import { OnboardingScreen } from './screens/OnboardingScreen';
@@ -48,6 +47,7 @@ import { OnboardingScreen } from './screens/OnboardingScreen';
 import { onAuthChange, listenToCloudData, logOut, PaiosUser } from './firebase';
 import { sendClientGeminiChat, sendClientGeminiTimetable } from './geminiClient';
 import { exportAndShareBackup } from './utils/exportShare';
+import { OfflineSyncManager } from './core/sync/OfflineSyncManager';
 
 import { WindowsTitleBar } from './components/WindowsTitleBar';
 import { WindowsTaskBar } from './components/WindowsTaskBar';
@@ -65,11 +65,6 @@ export const App: React.FC = () => {
   // Onboarding Flow State
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState<boolean>(() => {
     try {
-      const currentSettings = PAIOSStorage.getSettings();
-      if (currentSettings?.onboardingCompleted) return true;
-      if (currentSettings?.goals && currentSettings.goals.length > 0) return true;
-      const storedGoals = PAIOSStorage.getItem<any[]>('paios_goals', []);
-      if (Array.isArray(storedGoals) && storedGoals.length > 0) return true;
       if (typeof localStorage !== 'undefined') {
         return localStorage.getItem('paios_onboarding_completed') === 'true';
       }
@@ -159,7 +154,8 @@ export const App: React.FC = () => {
     };
     window.addEventListener('paios_storage_change', handleStorageChange);
 
-    // Initialize Service Worker & Background Version Manifest Checker at launch
+    // Bootstrap OfflineSyncManager Reconnection Listeners & Service Worker
+    OfflineSyncManager.init();
     initBackgroundVersionChecker();
     const unsubscribeUpdate = onVersionUpdateAvailable((manifest) => {
       setLatestServerManifest(manifest);
@@ -369,14 +365,8 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleCompleteOnboarding = (goals?: any[]) => {
+  const handleCompleteOnboarding = () => {
     try {
-      if (goals && Array.isArray(goals) && goals.length > 0) {
-        PAIOSStorage.updateSettings({ goals, onboardingCompleted: true });
-        PAIOSStorage.setItem('paios_goals', goals);
-      } else {
-        PAIOSStorage.updateSettings({ onboardingCompleted: true });
-      }
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('paios_onboarding_completed', 'true');
       }
@@ -905,14 +895,7 @@ export const App: React.FC = () => {
     return (
       <OnboardingScreen
         userName={currentUser?.displayName || settings.userName || 'Alex'}
-        onComplete={() => {
-          setHasCompletedOnboarding(true);
-          reloadState();
-        }}
-        onCompleteOnboarding={(goals) => {
-          setHasCompletedOnboarding(true);
-          handleCompleteOnboarding(goals);
-        }}
+        onCompleteOnboarding={handleCompleteOnboarding}
       />
     );
   }
@@ -979,7 +962,6 @@ export const App: React.FC = () => {
               }}
               onOpenCheckIn={() => setShowCheckInModal(true)}
               onOpenReview={() => setShowReviewModal(true)}
-              onOpenPlugins={() => setActiveTab(NavTab.PLUGINS)}
               onOpenSettings={() => setActiveTab(NavTab.SETTINGS)}
             />
 
@@ -1092,10 +1074,6 @@ export const App: React.FC = () => {
                   onAddJournalEntry={handleAddJournalEntry}
                   onDeleteJournalEntry={handleDeleteJournalEntry}
                 />
-              )}
-
-              {activeTab === NavTab.PLUGINS && (
-                <PluginHubScreen />
               )}
 
               {activeTab === NavTab.SETTINGS && (

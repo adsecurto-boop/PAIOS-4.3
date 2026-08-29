@@ -76,6 +76,16 @@ describe('Unit Test: PriorityRanking Composite Scoring Engine', () => {
     expect(ranked).toHaveLength(2);
   });
 
+  it('handles invalid priority string with fallback score', () => {
+    const score = PriorityRanking.calculateCompositeScore({ priority: 'invalid' as any, severity: 'info' });
+    expect(score).toBe(40);
+  });
+
+  it('handles invalid severity string with fallback score', () => {
+    const score = PriorityRanking.calculateCompositeScore({ priority: 'medium', severity: 'unknown' as any });
+    expect(score).toBe(40);
+  });
+
   it('handles ranking empty array returning empty array', () => {
     expect(PriorityRanking.rankItems([])).toEqual([]);
   });

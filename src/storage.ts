@@ -588,14 +588,7 @@ function save<T>(key: string, value: T): void {
   // 5. Non-blocking background sync push if authenticated session exists
   if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
     const token = getAuthToken();
-    if (
-      token &&
-      key !== PENDING_SYNC_KEY &&
-      key !== 'paios_offline_sync_queue' &&
-      !key.startsWith('paios_auth_') &&
-      !key.startsWith('paios_offline_') &&
-      !key.startsWith('paios_pending_')
-    ) {
+    if (token && key !== PENDING_SYNC_KEY && !key.startsWith('paios_auth_')) {
       fetch('/api/sync/push', {
         method: 'POST',
         headers: {
@@ -632,15 +625,7 @@ function remove(key: string): void {
     window.dispatchEvent(changeEvent);
 
     const token = getAuthToken();
-    if (
-      token &&
-      typeof fetch !== 'undefined' &&
-      key !== PENDING_SYNC_KEY &&
-      key !== 'paios_offline_sync_queue' &&
-      !key.startsWith('paios_auth_') &&
-      !key.startsWith('paios_offline_') &&
-      !key.startsWith('paios_pending_')
-    ) {
+    if (token && typeof fetch !== 'undefined' && !key.startsWith('paios_auth_')) {
       fetch(`/api/sync/data?key=${encodeURIComponent(key)}`, {
         method: 'DELETE',
         headers: {

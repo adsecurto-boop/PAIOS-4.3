@@ -5,7 +5,6 @@ import { PAIOSStorage } from '../storage';
 
 export interface OnboardingScreenProps {
   onCompleteOnboarding: (goals: ParsedGoal[]) => void;
-  onComplete?: () => void;
   userName?: string;
 }
 

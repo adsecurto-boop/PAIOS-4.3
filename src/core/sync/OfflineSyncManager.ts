@@ -1,6 +1,7 @@
 import { PAIOSStorage } from '../../storage';
+import { AuthSyncService } from '../../services/AuthSyncService';
 
-export interface OfflineSyncItem {
+export interface OfflineMutationItem {
   id: string;
   key: string;
   payload: any;
@@ -10,23 +11,42 @@ export interface OfflineSyncItem {
 }
 
 export class OfflineSyncManager {
-  public static STORAGE_KEY = 'paios_offline_sync_queue';
+  private static QUEUE_KEY = 'paios_offline_sync_queue';
   private static isFlushing = false;
+  private static remoteLockActive = false;
+  private static isInitialized = false;
 
-  public static isOnline(): boolean {
-    if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
-      return navigator.onLine;
+  /**
+   * Initializes application-wide network reconnection listeners.
+   * Flushes offline queue automatically upon network recovery.
+   */
+  static init(): void {
+    if (this.isInitialized) return;
+    this.isInitialized = true;
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => {
+        console.log('[OfflineSyncManager] Network online detected. Triggering queue flush...');
+        this.flushQueue();
+      });
+
+      // Flush queue on launch if online and queue exists
+      if (navigator.onLine) {
+        setTimeout(() => this.flushQueue(), 1000);
+      }
     }
-    return true;
   }
 
   /**
-   * Enqueues an offline action into the indexed offline buffer.
+   * Enqueues a storage mutation into the chronological FIFO queue.
    */
-  public static enqueueAction(key: string, payload: any, action: 'SAVE' | 'DELETE' = 'SAVE'): OfflineSyncItem {
+  static enqueueMutation(key: string, payload: any, action: 'SAVE' | 'DELETE' = 'SAVE'): OfflineMutationItem {
     const queue = this.getQueue();
-    const item: OfflineSyncItem = {
-      id: `off_${key}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    // Filter existing queued items for same key to avoid duplicate backlog
+    const filteredQueue = queue.filter((q) => q.key !== key);
+
+    const newItem: OfflineMutationItem = {
+      id: `mut_${key}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       key,
       payload,
       action,
@@ -34,139 +54,98 @@ export class OfflineSyncManager {
       retryCount: 0,
     };
 
-    // Deduplicate or append in chronological order
-    const filtered = queue.filter((q) => q.key !== key);
-    filtered.push(item);
+    filteredQueue.push(newItem);
+    PAIOSStorage.setItem(this.QUEUE_KEY, filteredQueue);
 
-    PAIOSStorage.setItem(this.STORAGE_KEY, filtered);
-    return item;
-  }
-
-  /**
-   * Returns all items currently pending in the offline sync queue.
-   */
-  public static getQueue(): OfflineSyncItem[] {
-    return PAIOSStorage.getItem<OfflineSyncItem[]>(this.STORAGE_KEY, []) || [];
-  }
-
-  /**
-   * Returns the count of pending items in the offline sync queue.
-   */
-  public static getQueueCount(): number {
-    return this.getQueue().length;
-  }
-
-  /**
-   * Clears the offline sync queue.
-   */
-  public static clearQueue(): void {
-    PAIOSStorage.setItem(this.STORAGE_KEY, []);
-  }
-
-  /**
-   * Flushes the offline queue in chronological sequence via POST /api/sync/push.
-   */
-  public static async flushQueue(authToken?: string): Promise<{
-    success: boolean;
-    syncedCount: number;
-    failedCount: number;
-    remainingQueue: OfflineSyncItem[];
-  }> {
-    if (this.isFlushing) {
-      return { success: true, syncedCount: 0, failedCount: 0, remainingQueue: this.getQueue() };
+    // If online, attempt background flush
+    if (typeof navigator !== 'undefined' && navigator.onLine && !this.remoteLockActive) {
+      this.flushQueue();
     }
 
-    const token = authToken || PAIOSStorage.getAuthToken();
+    return newItem;
+  }
+
+  /**
+   * Flushes the FIFO offline mutation queue upon network reconnection or manual sync trigger.
+   */
+  static async flushQueue(): Promise<{ success: boolean; processed: number; remaining: number }> {
+    if (this.isFlushing || this.remoteLockActive) {
+      return { success: true, processed: 0, remaining: this.getQueue().length };
+    }
+
+    const token = AuthSyncService.getToken();
     if (!token) {
-      return {
-        success: false,
-        syncedCount: 0,
-        failedCount: 0,
-        remainingQueue: this.getQueue(),
-      };
+      // User unauthenticated or guest mode, skip push
+      return { success: true, processed: 0, remaining: this.getQueue().length };
     }
 
     this.isFlushing = true;
-    const queue = [...this.getQueue()].sort((a, b) => a.timestamp - b.timestamp);
-    const syncedItems: string[] = [];
-    let failedCount = 0;
+    let queue = this.getQueue();
+    let processedCount = 0;
 
     try {
+      const remainingQueue: OfflineMutationItem[] = [];
+
       for (const item of queue) {
         try {
-          if (item.action === 'SAVE') {
-            const res = await fetch('/api/sync/push', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                key: item.key,
-                payload: item.payload,
-              }),
-            });
-
-            if (res.ok) {
-              syncedItems.push(item.id);
-            } else {
-              item.retryCount++;
-              failedCount++;
-            }
-          } else if (item.action === 'DELETE') {
-            const res = await fetch(`/api/sync/data?key=${encodeURIComponent(item.key)}`, {
-              method: 'DELETE',
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            });
-
-            if (res.ok) {
-              syncedItems.push(item.id);
-            } else {
-              item.retryCount++;
-              failedCount++;
-            }
+          if (item.action === 'DELETE') {
+            await AuthSyncService.deleteData(item.key);
+          } else {
+            await AuthSyncService.pushData(item.key, item.payload);
           }
+          processedCount++;
         } catch (err) {
-          console.warn('[OfflineSyncManager] Network error syncing item:', item.key, err);
-          item.retryCount++;
-          failedCount++;
-          break; // Stop flushing if network remains down
+          console.warn(`[OfflineSyncManager] Push failed for key ${item.key}:`, err);
+          item.retryCount = (item.retryCount || 0) + 1;
+          if (item.retryCount < 10) {
+            remainingQueue.push(item);
+          }
         }
       }
+
+      PAIOSStorage.setItem(this.QUEUE_KEY, remainingQueue);
+      return {
+        success: true,
+        processed: processedCount,
+        remaining: remainingQueue.length,
+      };
     } finally {
-      // Update queue removing all synced items
-      const currentQueue = this.getQueue();
-      const remaining = currentQueue.filter((q) => !syncedItems.includes(q.id));
-      PAIOSStorage.setItem(this.STORAGE_KEY, remaining);
       this.isFlushing = false;
     }
-
-    const remainingQueue = this.getQueue();
-    return {
-      success: failedCount === 0,
-      syncedCount: syncedItems.length,
-      failedCount,
-      remainingQueue,
-    };
   }
 
   /**
-   * Initializes automatic online network recovery listener.
+   * Remote Echo Loop Prevention Guard.
+   * Wraps inbound remote update processing with a lock to prevent cyclical echo pushes.
    */
-  public static initAutoReconnection(authTokenProvider?: () => string | null): () => void {
-    if (typeof window === 'undefined') return () => {};
+  static async withRemoteUpdateLock<T>(fn: () => T | Promise<T>): Promise<T> {
+    this.remoteLockActive = true;
+    try {
+      return await fn();
+    } finally {
+      this.remoteLockActive = false;
+    }
+  }
 
-    const handleOnline = async () => {
-      const token = authTokenProvider ? authTokenProvider() : PAIOSStorage.getAuthToken();
-      if (token) {
-        await this.flushQueue(token);
-      }
-    };
+  /**
+   * Returns whether the remote update lock is currently active.
+   */
+  static isRemoteLockActive(): boolean {
+    return this.remoteLockActive;
+  }
 
-    window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
+  /**
+   * Retrieves current queued mutations.
+   */
+  static getQueue(): OfflineMutationItem[] {
+    return PAIOSStorage.getItem<OfflineMutationItem[]>(this.QUEUE_KEY, []) || [];
+  }
+
+  /**
+   * Clears the offline mutation queue.
+   */
+  static clearQueue(): void {
+    PAIOSStorage.removeItem(this.QUEUE_KEY);
   }
 }
 
