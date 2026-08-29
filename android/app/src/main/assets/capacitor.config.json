@@ -1,0 +1,19 @@
+{
+	"appId": "com.paios.app",
+	"appName": "PAIOS",
+	"webDir": "dist",
+	"server": {
+		"cleartext": true,
+		"allowNavigation": [
+			"accounts.google.com",
+			"*.firebaseapp.com",
+			"*.google.com",
+			"*.googleusercontent.com",
+			"paios-app.firebaseapp.com",
+			"paios-app.web.app",
+			"localhost",
+			"10.0.2.2",
+			"127.0.0.1"
+		]
+	}
+}

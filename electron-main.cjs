@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, Menu, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, globalShortcut, Menu, ipcMain, dialog, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -31,6 +31,20 @@ function saveConfig(config) {
 
 function createWindow() {
   const config = loadConfig();
+
+  // Configure Content Security Policy to permit HTTP & WebSocket traffic to local & production API endpoints
+  if (session && session.defaultSession) {
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:3001 http://localhost:3000 ws://localhost:3001 ws://localhost:3000 https: http:; connect-src 'self' http://localhost:3001 http://localhost:3000 ws://localhost:3001 ws://localhost:3000 https: http:;"
+          ]
+        }
+      });
+    });
+  }
 
   mainWindow = new BrowserWindow({
     width: 1280,

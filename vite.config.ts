@@ -9,4 +9,17 @@ export default defineConfig(({ command }) => ({
     host: '0.0.0.0',
     port: 3000,
   },
+  build: {
+    rollupOptions: {
+      external: [
+        'better-sqlite3',
+        'bcryptjs',
+        'express',
+        'jsonwebtoken',
+      ],
+    },
+  },
+  optimizeDeps: {
+    exclude: ['better-sqlite3', 'bcryptjs', 'express', 'jsonwebtoken'],
+  },
 }));
