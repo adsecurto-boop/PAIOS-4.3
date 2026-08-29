@@ -10,7 +10,7 @@ const _filename = typeof __filename !== 'undefined' ? __filename : '';
 const _dirname = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'paios5_ubuntu_sqlite_jwt_secret';
 
 app.use(express.json());
@@ -975,8 +975,8 @@ async function setupMiddleware() {
   }
 
   if (!process.env.VERCEL) {
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`PAIOS server running on http://localhost:${PORT}`);
+    app.listen(Number(PORT), '0.0.0.0', () => {
+      console.log(`Server listening on http://0.0.0.0:${PORT}`);
     });
   }
 }

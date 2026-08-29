@@ -100,7 +100,7 @@ var db_default = db;
 // server.ts
 var _dirname = typeof __dirname !== "undefined" ? __dirname : process.cwd();
 var app = (0, import_express.default)();
-var PORT = 3e3;
+var PORT = process.env.PORT || 3001;
 var JWT_SECRET = process.env.JWT_SECRET || "paios5_ubuntu_sqlite_jwt_secret";
 app.use(import_express.default.json());
 function requireAuth(req, res, next) {
@@ -909,8 +909,8 @@ async function setupMiddleware() {
     });
   }
   if (!process.env.VERCEL) {
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`PAIOS server running on http://localhost:${PORT}`);
+    app.listen(Number(PORT), "0.0.0.0", () => {
+      console.log(`Server listening on http://0.0.0.0:${PORT}`);
     });
   }
 }
