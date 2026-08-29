@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Sun, Moon, Settings, Cpu, LogOut, Bell, Compass, RefreshCw } from 'lucide-react';
+import { Search, Sun, Moon, Settings, Cpu, LogOut, Bell, Compass, RefreshCw, Blocks } from 'lucide-react';
 import { CloudSyncBanner } from './CloudSyncBanner';
 import { AutoUpdateSyncBanner } from './AutoUpdateSyncBanner';
 import { PaiosUser } from '../firebase';
 import { getNotificationsHistory } from '../utils/notifications';
 import { PreContextBroker } from '../core/broker/PreContextBroker';
+import { PluginRegistry } from '../core/plugins/PluginRegistry';
 
 interface TopHeaderBarProps {
   userName?: string;
@@ -14,6 +15,7 @@ interface TopHeaderBarProps {
   onOpenCheckIn: () => void;
   onOpenReview: () => void;
   onOpenSettings: () => void;
+  onOpenPlugins?: () => void;
   onOpenNotifications?: () => void;
   onSyncComplete?: () => void;
   onOpenTour?: () => void;
@@ -26,22 +28,36 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
   onOpenCheckIn,
   onOpenReview,
   onOpenSettings,
+  onOpenPlugins,
   onOpenNotifications,
   onSyncComplete,
   onOpenTour,
 }) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isForceSyncing, setIsForceSyncing] = useState(false);
+  const [activePluginsCount, setActivePluginsCount] = useState(0);
 
   const checkUnread = () => {
     const history = getNotificationsHistory();
     setUnreadCount(history.filter((n) => !n.read).length);
   };
 
+  const updatePluginsCount = () => {
+    try {
+      const active = PluginRegistry.getActivePlugins();
+      setActivePluginsCount(active.length);
+    } catch {}
+  };
+
   useEffect(() => {
     checkUnread();
+    updatePluginsCount();
     window.addEventListener('paios_notification_change', checkUnread);
-    return () => window.removeEventListener('paios_notification_change', checkUnread);
+    window.addEventListener('paios_storage_change', updatePluginsCount);
+    return () => {
+      window.removeEventListener('paios_notification_change', checkUnread);
+      window.removeEventListener('paios_storage_change', updatePluginsCount);
+    };
   }, []);
 
   const handleForceSync = async () => {
@@ -139,6 +155,23 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
             <Moon className="w-4 h-4 text-indigo-400" />
             <span className="hidden sm:inline">Review</span>
           </button>
+
+          {onOpenPlugins && (
+            <button
+              onClick={onOpenPlugins}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-xs font-medium transition-colors shrink-0 min-h-[38px]"
+              title="Dynamic Plugin Hub & Marketplace"
+              aria-label="Plugins"
+            >
+              <Blocks className="w-3.5 h-3.5 text-purple-400" />
+              <span className="hidden sm:inline">Plugins</span>
+              {activePluginsCount > 0 && (
+                <span className="text-[10px] bg-purple-900/90 text-purple-200 px-1.5 py-0.2 rounded-full font-mono font-bold border border-purple-700/60">
+                  {activePluginsCount}
+                </span>
+              )}
+            </button>
+          )}
 
           <button
             onClick={onOpenSettings}

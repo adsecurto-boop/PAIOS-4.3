@@ -40,6 +40,7 @@ import { LearnScreen } from './screens/LearnScreen';
 import { InsightsScreen } from './screens/InsightsScreen';
 import { AiScreen } from './screens/AiScreen';
 import { JournalScreen } from './screens/JournalScreen';
+import { PluginHubScreen } from './screens/PluginHubScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { AuthScreen } from './screens/AuthScreen';
 import { OnboardingScreen } from './screens/OnboardingScreen';
@@ -978,6 +979,7 @@ export const App: React.FC = () => {
               }}
               onOpenCheckIn={() => setShowCheckInModal(true)}
               onOpenReview={() => setShowReviewModal(true)}
+              onOpenPlugins={() => setActiveTab(NavTab.PLUGINS)}
               onOpenSettings={() => setActiveTab(NavTab.SETTINGS)}
             />
 
@@ -1090,6 +1092,10 @@ export const App: React.FC = () => {
                   onAddJournalEntry={handleAddJournalEntry}
                   onDeleteJournalEntry={handleDeleteJournalEntry}
                 />
+              )}
+
+              {activeTab === NavTab.PLUGINS && (
+                <PluginHubScreen />
               )}
 
               {activeTab === NavTab.SETTINGS && (

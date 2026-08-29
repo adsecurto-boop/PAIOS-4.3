@@ -344,8 +344,8 @@ export const PluginHubScreen: React.FC<PluginHubScreenProps> = ({
 
       {/* Export Modal */}
       {exportModalManifest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
-          <div className="bg-slate-900 border border-purple-900/60 rounded-2xl p-6 max-w-lg w-full space-y-4 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md safe-area-top safe-area-bottom safe-area-left safe-area-right overflow-y-auto">
+          <div className="bg-slate-900 border border-purple-900/60 rounded-2xl p-6 max-w-lg w-full space-y-4 shadow-2xl my-auto">
             <div className="flex items-center justify-between">
               <h3 className="font-heading font-bold text-base text-white flex items-center gap-2">
                 <Download className="w-4 h-4 text-purple-400" /> Export Plugin Data (Versioned Manifest)
@@ -383,8 +383,8 @@ export const PluginHubScreen: React.FC<PluginHubScreenProps> = ({
 
       {/* Import Modal */}
       {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
-          <div className="bg-slate-900 border border-purple-900/60 rounded-2xl p-6 max-w-lg w-full space-y-4 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md safe-area-top safe-area-bottom safe-area-left safe-area-right overflow-y-auto">
+          <div className="bg-slate-900 border border-purple-900/60 rounded-2xl p-6 max-w-lg w-full space-y-4 shadow-2xl my-auto">
             <div className="flex items-center justify-between">
               <h3 className="font-heading font-bold text-base text-white flex items-center gap-2">
                 <Upload className="w-4 h-4 text-purple-400" /> Import Plugin Backup Manifest

@@ -11,6 +11,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  Blocks,
 } from 'lucide-react';
 import { NavTab } from '../types';
 
@@ -35,6 +36,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     { id: NavTab.INSIGHTS, label: 'Insights', icon: BarChart2 },
     { id: NavTab.AI, label: 'AI', icon: Bot },
     { id: NavTab.JOURNAL, label: 'Journal', icon: Book },
+    { id: NavTab.PLUGINS, label: 'Plugins', icon: Blocks },
     { id: NavTab.SETTINGS, label: 'Settings', icon: Settings },
   ];
 
