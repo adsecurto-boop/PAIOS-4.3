@@ -125,6 +125,14 @@ export class OfflineSyncManager {
   }
 
   /**
+   * Initializes automatic online network recovery listener (alias for init).
+   */
+  public static initAutoReconnection(authTokenProvider?: () => string | null): () => void {
+    this.init();
+    return () => {};
+  }
+
+  /**
    * Remote Echo Loop Prevention Guard.
    * Wraps inbound remote update processing with a lock to prevent cyclical echo pushes.
    */

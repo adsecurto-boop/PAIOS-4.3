@@ -307,6 +307,7 @@ export const App: React.FC = () => {
   // Firebase Auth Session Listener & Realtime Cloud Sync
   useEffect(() => {
     let cloudUnsub: (() => void) | null = null;
+    const cleanupOfflineSync = OfflineSyncManager.init(() => PAIOSStorage.getAuthToken());
 
     const unsubAuth = onAuthChange((user) => {
       if (user) {
@@ -335,6 +336,7 @@ export const App: React.FC = () => {
     });
 
     return () => {
+      cleanupOfflineSync();
       unsubAuth();
       if (cloudUnsub) cloudUnsub();
     };
