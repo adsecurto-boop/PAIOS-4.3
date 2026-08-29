@@ -28,7 +28,7 @@ const SUPPORTED_MAJOR_VERSION = 1;
 /**
  * Generates a simple checksum for export manifest integrity validation.
  */
-function generateChecksum(pluginId: string, dataStr: string): string {
+export function generateChecksum(pluginId: string, dataStr: string): string {
   let hash = 0;
   const combined = `${pluginId}:${dataStr}`;
   for (let i = 0; i < combined.length; i++) {
@@ -108,6 +108,17 @@ export function importPluginData<T = any>(bundle: any): ImportResult<T> {
     };
   }
 
+  if (parsed.checksum) {
+    const dataStr = typeof parsed.data === 'string' ? parsed.data : JSON.stringify(parsed.data);
+    const expected = generateChecksum(parsed.pluginId, dataStr);
+    if (parsed.checksum !== expected) {
+      return {
+        success: false,
+        error: 'Invalid manifest: checksum mismatch detected.',
+      };
+    }
+  }
+
   return {
     success: true,
     data: parsed.data as T,
@@ -119,17 +130,54 @@ export class PluginPortability {
   private static CURRENT_VERSION = 1;
 
   static exportPluginData(pluginId: string, data: Record<string, any>): string {
-    const bundle = exportPluginData(pluginId, data);
-    return JSON.stringify(bundle, null, 2);
+    const dataStr = JSON.stringify(data);
+    const manifest: PluginExportManifest = {
+      version: this.CURRENT_VERSION,
+      pluginId,
+      exportedAtMillis: Date.now(),
+      data,
+      checksum: generateChecksum(pluginId, dataStr),
+    };
+    return JSON.stringify(manifest, null, 2);
   }
 
-  static importPluginData(manifestJson: string | any): ImportResult {
-    return importPluginData(manifestJson);
+  static importPluginData(manifestJson: string): {
+    success: boolean;
+    manifest?: PluginExportManifest;
+    error?: string;
+  } {
+    if (!manifestJson || !manifestJson.trim()) {
+      return { success: false, error: 'Manifest JSON cannot be empty.' };
+    }
+
+    try {
+      const manifest: PluginExportManifest = JSON.parse(manifestJson);
+
+      if (!this.validateManifest(manifest)) {
+        return { success: false, error: 'Invalid manifest format or checksum mismatch.' };
+      }
+
+      return {
+        success: true,
+        manifest,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: `JSON parse error: ${err.message || String(err)}`,
+      };
+    }
   }
 
   static validateManifest(manifest: any): boolean {
     if (!manifest || typeof manifest !== 'object') return false;
+    if (typeof manifest.version !== 'number' || manifest.version <= 0) return false;
     if (!manifest.pluginId || manifest.data === undefined) return false;
+    if (manifest.checksum) {
+      const dataStr = JSON.stringify(manifest.data);
+      const expected = generateChecksum(manifest.pluginId, dataStr);
+      if (manifest.checksum !== expected) return false;
+    }
     return true;
   }
 }

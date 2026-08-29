@@ -1,7 +1,31 @@
 import { PAIOSStorage } from '../../storage';
 import { PreContextBroker } from '../broker/PreContextBroker';
-export * from '../../plugins/timetable/TimetablePlugin';
-import { TimetablePlugin as BaseTimetablePlugin } from '../../plugins/timetable/TimetablePlugin';
+
+export interface TimetableBlock {
+  id: string;
+  startTime?: string;
+  endTime?: string;
+  start?: string;
+  end?: string;
+  title?: string;
+  activity?: string;
+  category?: string;
+  status?: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'SKIPPED' | 'planned';
+  isAiProposed?: boolean;
+  duration_minutes?: number;
+  goal?: string;
+  priority?: string;
+  reason?: string;
+}
+
+export interface ScheduleProposal {
+  id: string;
+  generatedAt: number;
+  expiresAt: number;
+  status: 'pending' | 'accepted' | 'rejected' | 'lapsed';
+  blocks: TimetableBlock[];
+  explanation: string;
+}
 
 export interface TimetableProposal {
   id: string;
@@ -17,13 +41,104 @@ export interface TimetableProposal {
   status: 'pending' | 'accepted' | 'rejected' | 'lapsed';
 }
 
-export class CoreTimetablePlugin extends BaseTimetablePlugin {
+export interface TimetablePluginOptions {
+  initialSchedule?: TimetableBlock[];
+  onDispatchToPit?: (event: any) => void;
+}
+
+export class TimetablePlugin {
   private static STORAGE_KEY = 'paios_timetable_proposals';
 
-  /**
-   * Rule B1: Creates a 60s Contextual Schedule Proposal.
-   * Auto-lapses if not accepted within 60 seconds.
-   */
+  // Instance State
+  private activeSchedule: TimetableBlock[] = [];
+  private currentProposal: ScheduleProposal | null = null;
+  private inboundPitDispatcher: ((event: any) => void) | null = null;
+
+  constructor(options?: TimetablePluginOptions) {
+    this.activeSchedule = options?.initialSchedule ? [...options.initialSchedule] : [];
+    this.inboundPitDispatcher = options?.onDispatchToPit || null;
+  }
+
+  // --- Instance Methods ---
+
+  public proposeSchedule(blocks: TimetableBlock[], explanation = ''): ScheduleProposal {
+    const now = Date.now();
+    this.currentProposal = {
+      id: `prop_${now}_${Math.random().toString(36).substring(2, 7)}`,
+      generatedAt: now,
+      expiresAt: now + 60000,
+      status: 'pending',
+      blocks: [...blocks],
+      explanation,
+    };
+    return this.currentProposal;
+  }
+
+  public checkLapse(): void {
+    if (this.currentProposal && this.currentProposal.status === 'pending') {
+      if (Date.now() >= this.currentProposal.expiresAt) {
+        this.currentProposal.status = 'lapsed';
+      }
+    }
+  }
+
+  public acceptProposal(proposalId: string): boolean {
+    this.checkLapse();
+    if (
+      this.currentProposal &&
+      this.currentProposal.id === proposalId &&
+      this.currentProposal.status === 'pending'
+    ) {
+      this.currentProposal.status = 'accepted';
+      this.activeSchedule = [...this.currentProposal.blocks];
+      return true;
+    }
+    return false;
+  }
+
+  public rejectProposal(proposalId: string): boolean {
+    this.checkLapse();
+    if (
+      this.currentProposal &&
+      this.currentProposal.id === proposalId &&
+      this.currentProposal.status === 'pending'
+    ) {
+      this.currentProposal.status = 'rejected';
+      return true;
+    }
+    return false;
+  }
+
+  public getActiveSchedule(): TimetableBlock[] {
+    return this.activeSchedule;
+  }
+
+  public getProposal(): ScheduleProposal | null {
+    this.checkLapse();
+    return this.currentProposal;
+  }
+
+  public markBlockComplete(blockId: string): void {
+    const block = this.activeSchedule.find((b) => b.id === blockId);
+    if (block) {
+      block.status = 'COMPLETED';
+    }
+
+    if (this.inboundPitDispatcher) {
+      this.inboundPitDispatcher({
+        sourcePluginId: 'timetable-plugin',
+        priority: 'medium',
+        severity: 'info',
+        payload: {
+          action: 'block_completed',
+          blockId,
+        },
+      });
+    }
+  }
+
+  // --- Static Methods ---
+
   static createProposal(params: {
     activity: string;
     category?: string;
@@ -158,4 +273,4 @@ export class CoreTimetablePlugin extends BaseTimetablePlugin {
   }
 }
 
-export default CoreTimetablePlugin;
+export default TimetablePlugin;
