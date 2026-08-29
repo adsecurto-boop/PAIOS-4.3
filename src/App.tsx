@@ -64,6 +64,11 @@ export const App: React.FC = () => {
   // Onboarding Flow State
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState<boolean>(() => {
     try {
+      const currentSettings = PAIOSStorage.getSettings();
+      if (currentSettings?.onboardingCompleted) return true;
+      if (currentSettings?.goals && currentSettings.goals.length > 0) return true;
+      const storedGoals = PAIOSStorage.getItem<any[]>('paios_goals', []);
+      if (Array.isArray(storedGoals) && storedGoals.length > 0) return true;
       if (typeof localStorage !== 'undefined') {
         return localStorage.getItem('paios_onboarding_completed') === 'true';
       }
@@ -893,7 +898,14 @@ export const App: React.FC = () => {
     return (
       <OnboardingScreen
         userName={currentUser?.displayName || settings.userName || 'Alex'}
-        onCompleteOnboarding={handleCompleteOnboarding}
+        onComplete={() => {
+          setHasCompletedOnboarding(true);
+          reloadState();
+        }}
+        onCompleteOnboarding={(goals) => {
+          setHasCompletedOnboarding(true);
+          handleCompleteOnboarding(goals);
+        }}
       />
     );
   }
