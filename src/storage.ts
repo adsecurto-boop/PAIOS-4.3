@@ -21,6 +21,8 @@ import {
   AdaptiveTimetableResponse,
   TimetableStatus,
 } from './types';
+import { ConflictResolver } from './core/sync/ConflictResolver';
+import { OfflineSyncManager } from './core/sync/OfflineSyncManager';
 
 const STORAGE_KEYS = {
   TASKS: 'paios_tasks_v1',
@@ -586,22 +588,43 @@ function save<T>(key: string, value: T): void {
   }
 
   // 5. Non-blocking background sync push if authenticated session exists
-  if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+  if (ConflictResolver.isApplyingRemoteUpdate() || OfflineSyncManager.isRemoteLockActive()) {
+    return;
+  }
+
+  if (typeof window !== 'undefined') {
     const token = getAuthToken();
-    if (token && key !== PENDING_SYNC_KEY && !key.startsWith('paios_auth_')) {
-      fetch('/api/sync/push', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          key,
-          payload: value,
-        }),
-      }).catch((err) => {
-        console.warn('[PAIOSStorage] Background sync push failed:', err);
-      });
+    if (
+      token &&
+      key !== PENDING_SYNC_KEY &&
+      key !== 'paios_offline_sync_queue' &&
+      !key.startsWith('paios_auth_') &&
+      !key.startsWith('paios_offline_') &&
+      !key.startsWith('paios_pending_')
+    ) {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        OfflineSyncManager.enqueueMutation(key, value, 'SAVE');
+        return;
+      }
+
+      if (typeof fetch !== 'undefined') {
+        fetch('/api/sync/push', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            key,
+            payload: value,
+          }),
+        }).catch((err) => {
+          console.warn('[PAIOSStorage] Background sync push failed:', err);
+          if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            OfflineSyncManager.enqueueMutation(key, value, 'SAVE');
+          }
+        });
+      }
     }
   }
 }
@@ -624,14 +647,36 @@ function remove(key: string): void {
     });
     window.dispatchEvent(changeEvent);
 
+    if (ConflictResolver.isApplyingRemoteUpdate() || OfflineSyncManager.isRemoteLockActive()) {
+      return;
+    }
+
     const token = getAuthToken();
-    if (token && typeof fetch !== 'undefined' && !key.startsWith('paios_auth_')) {
-      fetch(`/api/sync/data?key=${encodeURIComponent(key)}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      }).catch(() => {});
+    if (
+      token &&
+      key !== PENDING_SYNC_KEY &&
+      key !== 'paios_offline_sync_queue' &&
+      !key.startsWith('paios_auth_') &&
+      !key.startsWith('paios_offline_') &&
+      !key.startsWith('paios_pending_')
+    ) {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        OfflineSyncManager.enqueueMutation(key, null, 'DELETE');
+        return;
+      }
+
+      if (typeof fetch !== 'undefined') {
+        fetch(`/api/sync/data?key=${encodeURIComponent(key)}`, {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }).catch(() => {
+          if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            OfflineSyncManager.enqueueMutation(key, null, 'DELETE');
+          }
+        });
+      }
     }
   }
 }

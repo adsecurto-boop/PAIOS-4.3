@@ -10,7 +10,10 @@ export interface OfflineMutationItem {
   retryCount: number;
 }
 
+export type OfflineSyncItem = OfflineMutationItem;
+
 export class OfflineSyncManager {
+  public static STORAGE_KEY = 'paios_offline_sync_queue';
   private static QUEUE_KEY = 'paios_offline_sync_queue';
   private static isFlushing = false;
   private static remoteLockActive = false;
@@ -63,6 +66,13 @@ export class OfflineSyncManager {
     }
 
     return newItem;
+  }
+
+  /**
+   * Alias for enqueueMutation.
+   */
+  static enqueueAction(key: string, payload: any, action: 'SAVE' | 'DELETE' = 'SAVE'): OfflineMutationItem {
+    return this.enqueueMutation(key, payload, action);
   }
 
   /**

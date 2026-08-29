@@ -7,6 +7,41 @@ export interface ConflictOptions {
 }
 
 export class ConflictResolver {
+  private static applyingRemoteUpdate = false;
+
+  /**
+   * Returns whether the system is currently applying an inbound remote update.
+   */
+  static isApplyingRemoteUpdate(): boolean {
+    return this.applyingRemoteUpdate;
+  }
+
+  /**
+   * Sets the applying remote update flag.
+   */
+  static setApplyingRemoteUpdate(val: boolean): void {
+    this.applyingRemoteUpdate = val;
+  }
+
+  /**
+   * Executes an async operation with the remote update lock engaged.
+   */
+  static async withRemoteUpdateLock<T>(fn: () => T | Promise<T>): Promise<T> {
+    this.applyingRemoteUpdate = true;
+    try {
+      return await fn();
+    } finally {
+      this.applyingRemoteUpdate = false;
+    }
+  }
+
+  /**
+   * Alias for resolveConflict.
+   */
+  static resolve<T = any>(localData: T, remoteData: T, options: ConflictOptions = {}): T {
+    return this.resolveConflict(localData, remoteData, options);
+  }
+
   /**
    * Deterministically resolves sync conflicts between local and remote state snapshots.
    *
