@@ -28,6 +28,7 @@ import { SearchModal } from './components/SearchModal';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { SetupWizardModal } from './components/SetupWizardModal';
 import { UpdatePromptModal } from './components/UpdatePromptModal';
+import { AuthModal } from './components/AuthModal';
 import { dispatchNotification } from './utils/notifications';
 import { initBackgroundVersionChecker, onVersionUpdateAvailable, VersionManifest } from './utils/versionCheck';
 
@@ -41,6 +42,7 @@ import { AiScreen } from './screens/AiScreen';
 import { JournalScreen } from './screens/JournalScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { AuthScreen } from './screens/AuthScreen';
+import { OnboardingScreen } from './screens/OnboardingScreen';
 
 import { onAuthChange, listenToCloudData, logOut, PaiosUser } from './firebase';
 import { sendClientGeminiChat, sendClientGeminiTimetable } from './geminiClient';
@@ -107,6 +109,7 @@ export const App: React.FC = () => {
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [showSetupWizardModal, setShowSetupWizardModal] = useState(false);
   const [showUpdatePromptModal, setShowUpdatePromptModal] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [latestServerManifest, setLatestServerManifest] = useState<VersionManifest | null>(null);
 
   // Live Timer State for MiniTimerPlayer
@@ -864,6 +867,11 @@ export const App: React.FC = () => {
     return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
   }
 
+  // Render OnboardingScreen if onboarding has not been completed
+  if (settings.onboardingCompleted === false || (!settings.onboardingCompleted && (!settings.goals || settings.goals.length === 0))) {
+    return <OnboardingScreen onComplete={() => reloadState()} userName={currentUser.displayName || settings.userName || 'Alex'} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white overflow-x-hidden w-full max-w-full safe-area-left safe-area-right">
       {/* Windows 11 Desktop Title Bar */}
@@ -1190,6 +1198,12 @@ export const App: React.FC = () => {
         isOpen={showUpdatePromptModal}
         onClose={() => setShowUpdatePromptModal(false)}
         serverManifest={latestServerManifest}
+      />
+
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={() => reloadState()}
       />
     </div>
   );
