@@ -15,11 +15,12 @@
     "test:unit": "vitest run tests/unit/",
     "db:reset": "node -e \"['./data/paios5.sqlite','./data/paios5.sqlite-wal','./data/paios5.sqlite-shm'].forEach(f=>{try{require('fs').unlinkSync(f)}catch(e){}})\"",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "build:win": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false vite build && npx electron-builder --win portable --config.forceCodeSigning=false",
+    "build:win": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false vite build && npx electron-packager . \"PAIOS Desktop\" --platform=win32 --arch=x64 --out=dist-electron --overwrite",
     "build:exe": "vite build && npx electron-packager . \"PAIOS Desktop\" --platform=win32 --arch=x64 --out=dist-electron --overwrite",
     "build:apk": "npm run build && npx cap sync android && cd android && ./gradlew assembleDebug",
     "build:win-unpacked": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false vite build && npx electron-builder --win dir",
     "electron": "electron .",
+    "electron:dev": "cross-env NODE_ENV=development electron .",
     "start": "node dist/server.cjs",
     "lint": "tsc --noEmit"
   },

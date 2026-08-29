@@ -25,6 +25,9 @@ data/*.sqlite*
 backups/*.sqlite*
 logs/
 
+# Build outputs
+dist-electron/
+
 # Ensure Android resources, xml templates, and drawable mipmaps are NEVER ignored
 !android/app/src/main/res/**/*
 node_modules
