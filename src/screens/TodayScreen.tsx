@@ -16,8 +16,11 @@ import {
   Clock,
   Sparkles,
   ArrowRight,
+  X,
+  Check,
 } from 'lucide-react';
 import { ActivityLog, Task, TimelineEntry, UserSettings } from '../types';
+import { TimetablePlugin, TimetableProposal } from '../core/plugins/TimetablePlugin';
 
 interface TodayScreenProps {
   activeActivity: ActivityLog | null;
@@ -59,8 +62,12 @@ export const TodayScreen: React.FC<TodayScreenProps> = ({
   onOpenStudy,
 }) => {
   const [liveSeconds, setLiveSeconds] = useState(0);
+  const [activeProposal, setActiveProposal] = useState<TimetableProposal | null>(() =>
+    TimetablePlugin.getActiveProposal()
+  );
+  const [proposalSecondsLeft, setProposalSecondsLeft] = useState(0);
 
-  // Live ticker update
+  // Live timer ticker update
   useEffect(() => {
     let interval: any = null;
     if (activeActivity) {
@@ -87,6 +94,45 @@ export const TodayScreen: React.FC<TodayScreenProps> = ({
       if (interval) clearInterval(interval);
     };
   }, [activeActivity]);
+
+  // Timetable Proposal 60s Ticker & Event Listeners
+  useEffect(() => {
+    const updateProposalState = () => {
+      const prop = TimetablePlugin.getActiveProposal();
+      setActiveProposal(prop);
+      if (prop) {
+        const left = Math.max(0, Math.ceil((prop.expiresAtMillis - Date.now()) / 1000));
+        setProposalSecondsLeft(left);
+      } else {
+        setProposalSecondsLeft(0);
+      }
+    };
+
+    updateProposalState();
+    const interval = setInterval(updateProposalState, 1000);
+
+    const handleProposalUpdate = () => updateProposalState();
+    const handlePitSynced = () => updateProposalState();
+
+    window.addEventListener('timetable_proposal_updated', handleProposalUpdate);
+    window.addEventListener('precontext_pit_synced', handlePitSynced);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('timetable_proposal_updated', handleProposalUpdate);
+      window.removeEventListener('precontext_pit_synced', handlePitSynced);
+    };
+  }, []);
+
+  const handleAcceptProposal = (id: string) => {
+    TimetablePlugin.acceptProposal(id);
+    setActiveProposal(null);
+  };
+
+  const handleDeclineProposal = (id: string) => {
+    TimetablePlugin.rejectProposal(id);
+    setActiveProposal(null);
+  };
 
   const formatTimer = (totalSecs: number) => {
     const hrs = Math.floor(totalSecs / 3600);
@@ -116,6 +162,48 @@ export const TodayScreen: React.FC<TodayScreenProps> = ({
 
   return (
     <div className="space-y-6 pb-12">
+      {/* Rule B1: 60s Contextual Schedule Proposal Banner */}
+      {activeProposal && activeProposal.status === 'pending' && proposalSecondsLeft > 0 && (
+        <div className="bg-indigo-950/80 border border-indigo-500/50 rounded-2xl p-4 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 transition-all animate-pulse-subtle">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-indigo-600/30 text-indigo-400 rounded-xl border border-indigo-500/40 shrink-0">
+              <Sparkles className="w-5 h-5 text-amber-300 fill-amber-300/30" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-white flex items-center gap-2">
+                <span>AI Contextual Schedule Proposal</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-900/80 text-indigo-300 border border-indigo-700/60 font-semibold">
+                  Rule B1 (60s Auto-Lapse)
+                </span>
+              </p>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Suggested focus: <strong className="text-indigo-300">{activeProposal.activity}</strong> ({activeProposal.start}–{activeProposal.end}). {activeProposal.reason}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+            <span className="text-xs font-mono font-bold text-amber-300 bg-amber-950/80 px-2.5 py-1 rounded-lg border border-amber-800/80">
+              ⏱ {proposalSecondsLeft}s
+            </span>
+            <button
+              onClick={() => handleAcceptProposal(activeProposal.id)}
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md shadow-emerald-600/20 transition-all flex items-center gap-1"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Accept</span>
+            </button>
+            <button
+              onClick={() => handleDeclineProposal(activeProposal.id)}
+              className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold border border-slate-700 transition-all flex items-center gap-1"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Decline</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 1. Active Timer Hero Card */}
       <section className="bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/60 border border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
