@@ -40,7 +40,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
   // Auto-scroll active tab into center view when tab changes
   useEffect(() => {
-    if (activeItemRef.current && typeof activeItemRef.current.scrollIntoView === 'function') {
+    if (activeItemRef.current) {
       activeItemRef.current.scrollIntoView({
         behavior: 'smooth',
         block: 'nearest',

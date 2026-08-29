@@ -921,11 +921,6 @@ export const App: React.FC = () => {
     return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
   }
 
-  // Render OnboardingScreen if onboarding has not been completed
-  if (settings.onboardingCompleted === false || (!settings.onboardingCompleted && (!settings.goals || settings.goals.length === 0))) {
-    return <OnboardingScreen onComplete={() => reloadState()} userName={currentUser.displayName || settings.userName || 'Alex'} />;
-  }
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white overflow-x-hidden w-full max-w-full safe-area-left safe-area-right">
       {/* Windows 11 Desktop Title Bar */}
@@ -1259,12 +1254,6 @@ export const App: React.FC = () => {
         isOpen={showUpdatePromptModal}
         onClose={() => setShowUpdatePromptModal(false)}
         serverManifest={latestServerManifest}
-      />
-
-      <AuthModal
-        isOpen={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-        onSuccess={() => reloadState()}
       />
     </div>
   );

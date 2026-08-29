@@ -1,38 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { X, Lock, Mail, User, Loader2, ArrowRight, ShieldCheck, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { X, Lock, Mail, User, ArrowRight, ShieldCheck, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { AuthSyncService, PaiosAuthUser } from '../services/AuthSyncService';
 
 export interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
   onAuthSuccess?: (user: PaiosAuthUser) => void;
-  initialMode?: 'LOGIN' | 'REGISTER' | 'login' | 'register';
+  initialMode?: 'LOGIN' | 'REGISTER';
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
-  onSuccess,
   onAuthSuccess,
-  initialMode = 'login',
+  initialMode = 'LOGIN',
 }) => {
-  const normalizedInitialMode = initialMode.toLowerCase() === 'register' ? 'register' : 'login';
-  const [mode, setMode] = useState<'login' | 'register'>(normalizedInitialMode);
+  const [mode, setMode] = useState<'LOGIN' | 'REGISTER'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+
+  // Live Validation
+  const isValidEmail = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim());
+  const isValidPassword = (val: string) => val.length >= 8;
 
   useEffect(() => {
-    setMode(normalizedInitialMode);
-    setError(null);
+    setMode(initialMode);
+    setErrorMessage(null);
     setSuccessMessage(null);
   }, [initialMode, isOpen]);
 
-  // Keyboard navigation: Escape key closes modal
+  // Keyboard Navigation: Escape to close modal
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -47,252 +48,196 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   if (!isOpen) return null;
 
-  const validateEmail = (val: string): boolean => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim());
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setErrorMessage(null);
     setSuccessMessage(null);
 
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail) {
-      setError('Email address is required.');
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !isValidEmail(cleanEmail)) {
+      setErrorMessage('Please enter a valid email address.');
       return;
     }
 
-    if (!validateEmail(trimmedEmail)) {
-      setError('Please enter a valid email address.');
+    if (!isValidPassword(password)) {
+      setErrorMessage('Password must be at least 8 characters long.');
       return;
     }
 
-    if (!password) {
-      setError('Password is required.');
-      return;
-    }
-
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters long.');
-      return;
-    }
-
-    setIsLoading(true);
-
+    setLoading(true);
     try {
-      if (mode === 'register') {
-        const res = await AuthSyncService.register(trimmedEmail, password, displayName.trim() || undefined);
-        setSuccessMessage('Account created successfully! Session synced.');
+      if (mode === 'REGISTER') {
+        const res = await AuthSyncService.register(cleanEmail, password, displayName || undefined);
+        setSuccessMessage('Registration successful! Session activated.');
         if (onAuthSuccess) onAuthSuccess(res.user);
+        setTimeout(() => onClose(), 600);
       } else {
-        const res = await AuthSyncService.login(trimmedEmail, password);
-        setSuccessMessage(`Welcome back! Session synced.`);
+        const res = await AuthSyncService.login(cleanEmail, password);
+        setSuccessMessage(`Welcome back, ${res.user.displayName || res.user.email}!`);
         if (onAuthSuccess) onAuthSuccess(res.user);
+        setTimeout(() => onClose(), 600);
       }
-
-      setEmail('');
-      setPassword('');
-      setDisplayName('');
-      setError(null);
-
-      if (onSuccess) {
-        onSuccess();
-      }
-      onClose();
     } catch (err: any) {
-      setError(err?.message || 'Authentication failed. Please check your credentials.');
+      setErrorMessage(err.message || 'Authentication failed. Please try again.');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  };
-
-  const handleTabSwitch = (newMode: 'login' | 'register') => {
-    setMode(newMode);
-    setError(null);
-    setSuccessMessage(null);
   };
 
   return (
     <div
-      id="auth-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in safe-area-left safe-area-right pb-safe"
-      onClick={onClose}
-      data-testid="auth-modal-overlay"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto safe-area-left safe-area-right pb-safe"
       role="dialog"
       aria-modal="true"
       aria-labelledby="auth-modal-title"
     >
       <div
-        id="auth-modal-container"
-        className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden p-6 sm:p-8 max-h-[90vh] overflow-y-auto"
+        className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8 max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
-        data-testid="auth-modal"
       >
         {/* Close Button */}
         <button
-          id="auth-close-button"
-          data-testid="auth-close-btn"
-          onClick={onClose}
           type="button"
-          className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
-          aria-label="Close"
+          onClick={onClose}
+          className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-xl transition-all"
+          aria-label="Close Auth Modal"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Modal Header */}
-        <div className="flex items-center space-x-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-            <ShieldCheck className="w-5 h-5" />
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-3 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-2xl">
+            <ShieldCheck className="w-6 h-6" />
           </div>
           <div>
             <h2 id="auth-modal-title" className="text-xl font-bold text-white tracking-tight">
-              PAIOS Cloud Sync
+              PAIOS Authentication
             </h2>
-            <p className="text-xs text-slate-400">Authenticate to backup, sync & access your workspace</p>
+            <p className="text-xs text-slate-400">Sign in or register for multi-device sync</p>
           </div>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex rounded-xl bg-slate-950/60 p-1 border border-slate-800 mb-6" role="tablist">
+        {/* Mode Tab Switcher */}
+        <div className="grid grid-cols-2 gap-1 bg-slate-950/60 p-1 rounded-xl border border-slate-800 mb-6 text-xs font-semibold">
           <button
             type="button"
-            id="auth-tab-login"
-            data-testid="auth-tab-login"
-            role="tab"
-            aria-selected={mode === 'login'}
-            onClick={() => handleTabSwitch('login')}
-            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center space-x-1.5 ${
-              mode === 'login'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200'
+            onClick={() => {
+              setMode('LOGIN');
+              setErrorMessage(null);
+            }}
+            className={`py-2 rounded-lg transition-all ${
+              mode === 'LOGIN' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <span>Sign In</span>
+            Sign In
           </button>
           <button
             type="button"
-            id="auth-tab-register"
-            data-testid="auth-tab-register"
-            role="tab"
-            aria-selected={mode === 'register'}
-            onClick={() => handleTabSwitch('register')}
-            className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all flex items-center justify-center space-x-1.5 ${
-              mode === 'register'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200'
+            onClick={() => {
+              setMode('REGISTER');
+              setErrorMessage(null);
+            }}
+            className={`py-2 rounded-lg transition-all ${
+              mode === 'REGISTER' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <span>Create Account</span>
+            Create Account
           </button>
         </div>
 
-        {/* Error / Success Feedback */}
-        {error && (
-          <div
-            data-testid="auth-error-message"
-            className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-400 flex items-start space-x-2 animate-shake"
-          >
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{error}</span>
+        {/* Feedback Messages */}
+        {errorMessage && (
+          <div className="mb-4 p-3 rounded-xl bg-red-950/60 border border-red-800/80 text-red-200 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+            <span className="flex-1">{errorMessage}</span>
           </div>
         )}
 
         {successMessage && (
-          <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-400 flex items-start space-x-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{successMessage}</span>
+          <div className="mb-4 p-3 rounded-xl bg-emerald-950/60 border border-emerald-800/80 text-emerald-200 text-xs flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="flex-1">{successMessage}</span>
           </div>
         )}
 
         {/* Form */}
-        <form onSubmit={handleSubmit} noValidate className="space-y-4">
-          {mode === 'register' && (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {mode === 'REGISTER' && (
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5" htmlFor="display-name-input">
-                Display Name (Optional)
-              </label>
+              <label className="block text-xs font-medium text-slate-300 mb-1">Display Name</label>
               <div className="relative">
-                <User className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <User className="absolute left-3.5 top-3 w-4 h-4 text-slate-500" />
                 <input
-                  id="display-name-input"
-                  data-testid="display-name-input"
                   type="text"
                   placeholder="Alex Mercer"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5" htmlFor="email-input">
-              Email Address
-            </label>
+            <label className="block text-xs font-medium text-slate-300 mb-1">Email Address</label>
             <div className="relative">
-              <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Mail className="absolute left-3.5 top-3 w-4 h-4 text-slate-500" />
               <input
-                id="email-input"
-                data-testid="email-input"
                 type="email"
-                placeholder="name@example.com"
+                required
+                placeholder="user@paios.ai"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
-                autoComplete="email"
+                className={`w-full bg-slate-950 border rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-1 ${
+                  email && !isValidEmail(email)
+                    ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
+                    : 'border-slate-800 focus:border-indigo-500 focus:ring-indigo-500'
+                }`}
               />
             </div>
+            {email && !isValidEmail(email) && (
+              <p className="text-[10px] text-red-400 mt-1">Please enter a valid email address.</p>
+            )}
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5" htmlFor="password-input">
-              Password
-            </label>
+            <label className="block text-xs font-medium text-slate-300 mb-1">Password</label>
             <div className="relative">
-              <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Lock className="absolute left-3.5 top-3 w-4 h-4 text-slate-500" />
               <input
-                id="password-input"
-                data-testid="password-input"
                 type="password"
+                required
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-950/60 border border-slate-800 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
-                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+                className={`w-full bg-slate-950 border rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-1 ${
+                  password && !isValidPassword(password)
+                    ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
+                    : 'border-slate-800 focus:border-indigo-500 focus:ring-indigo-500'
+                }`}
               />
             </div>
-            <p className="text-[10px] text-slate-500 mt-1">Minimum 8 characters</p>
+            {password && !isValidPassword(password) && (
+              <p className="text-[10px] text-red-400 mt-1">Password must be at least 8 characters.</p>
+            )}
           </div>
 
           <button
             type="submit"
-            id="auth-submit-button"
-            data-testid="auth-submit-btn"
-            disabled={isLoading}
-            className="w-full mt-2 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium rounded-xl text-sm flex items-center justify-center space-x-2 transition-all shadow-lg shadow-indigo-600/25 active:scale-[0.99]"
+            disabled={loading || !isValidEmail(email) || !isValidPassword(password)}
+            className="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition-all shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed mt-2"
           >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Processing...</span>
-              </>
+            {loading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <>
-                <span>{mode === 'login' ? 'Sign In' : 'Create Account'}</span>
+                <span>{mode === 'REGISTER' ? 'Register Account' : 'Sign In'}</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
           </button>
         </form>
-
-        {/* Footer info */}
-        <div className="mt-6 pt-4 border-t border-slate-800 text-center">
-          <p className="text-[11px] text-slate-500">
-            End-to-end SQLite encrypted multi-device synchronization
-          </p>
-        </div>
       </div>
     </div>
   );

@@ -1,9 +1,10 @@
-import { Priority, Severity } from './PriorityRanking';
+import { Priority, Severity, PriorityRanking, RankableItem, PriorityLevel, SeverityLevel } from './PriorityRanking';
+import { PAIOSStorage } from '../../storage';
 
 export interface InboundEvent {
   id?: string;
-  userId: string;
-  sourcePluginId: string;
+  userId?: string;
+  sourcePluginId?: string;
   targetPluginId?: string;
   priority: Priority;
   severity: Severity;
@@ -12,12 +13,30 @@ export interface InboundEvent {
   createdAt?: number;
 }
 
+export interface InboundPITRecord extends RankableItem {
+  id: string;
+  source_plugin_id: string;
+  target_plugin_id?: string;
+  priority: PriorityLevel;
+  severity: SeverityLevel;
+  payload: any;
+  status: 'staged' | 'synced' | 'rejected';
+  created_at: number;
+}
+
 export interface PreContextBrokerOptions {
   db?: any;
   debounceMs?: number;
 }
 
 export class PreContextBroker {
+  // Static state for client-side PIT event broker
+  private static staticBuffer: InboundPITRecord[] = [];
+  private static staticDebounceTimer: any = null;
+  private static STATIC_DEBOUNCE_DELAY_MS = 2500;
+  private static isSyncing = false;
+
+  // Instance state for server/backend/test instances
   private buffer: InboundEvent[] = [];
   private timer: any = null;
   private subscriber: ((events: InboundEvent[]) => void) | null = null;
@@ -29,6 +48,8 @@ export class PreContextBroker {
     this.debounceMs = options?.debounceMs ?? 2500;
   }
 
+  // --- Instance Methods ---
+
   public onFlush(callback: (events: InboundEvent[]) => void): void {
     this.subscriber = callback;
   }
@@ -36,8 +57,8 @@ export class PreContextBroker {
   public submitEvent(event: InboundEvent): void {
     const enrichedEvent: InboundEvent = {
       id: event.id || `evt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-      userId: event.userId,
-      sourcePluginId: event.sourcePluginId,
+      userId: event.userId || 'system',
+      sourcePluginId: event.sourcePluginId || 'plugin',
       targetPluginId: event.targetPluginId || undefined,
       priority: event.priority,
       severity: event.severity,
@@ -46,7 +67,6 @@ export class PreContextBroker {
       createdAt: event.createdAt || Date.now(),
     };
 
-    // Persist to SQLite if database connection is available
     if (this.db) {
       try {
         const stmt = this.db.prepare(`
@@ -70,36 +90,31 @@ export class PreContextBroker {
       }
     }
 
-    // Buffer in memory
     this.buffer.push(enrichedEvent);
 
-    // Reset debounce timer
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
 
     this.timer = setTimeout(() => {
-      this.flushBuffer();
+      this.flushInstanceBuffer();
     }, this.debounceMs);
   }
 
-  /**
-   * Rule B2: Force Sync Override - immediately flushes the debounce buffer.
-   */
   public triggerForceSync(): void {
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    this.flushBuffer();
+    this.flushInstanceBuffer();
   }
 
   public getBufferedCount(): number {
     return this.buffer.length;
   }
 
-  private flushBuffer(): void {
+  private flushInstanceBuffer(): void {
     if (this.buffer.length === 0) return;
     const eventsToFlush = [...this.buffer];
     this.buffer = [];
@@ -108,4 +123,123 @@ export class PreContextBroker {
       this.subscriber(eventsToFlush);
     }
   }
+
+  // --- Static Methods ---
+
+  /**
+   * Enqueues an inbound PIT event into the staging buffer.
+   * Starts a 2500ms debounce timer to batch incoming items before flushing.
+   */
+  static enqueuePIT(item: {
+    source_plugin_id: string;
+    target_plugin_id?: string;
+    priority?: PriorityLevel;
+    severity?: SeverityLevel;
+    payload: any;
+  }): InboundPITRecord {
+    const record: InboundPITRecord = {
+      id: `pit_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      source_plugin_id: item.source_plugin_id,
+      target_plugin_id: item.target_plugin_id,
+      priority: item.priority || 'medium',
+      severity: item.severity || 'info',
+      payload: item.payload,
+      status: 'staged',
+      created_at: Date.now(),
+    };
+
+    this.staticBuffer.push(record);
+
+    if (this.staticDebounceTimer) {
+      clearTimeout(this.staticDebounceTimer);
+    }
+
+    this.staticDebounceTimer = setTimeout(() => {
+      this.flushStaticBuffer();
+    }, this.STATIC_DEBOUNCE_DELAY_MS);
+
+    return record;
+  }
+
+  /**
+   * Rule B2 Force Sync Override: Immediately flushes the inbound buffer.
+   */
+  static async triggerForceSync(): Promise<{ success: boolean; count: number; items: InboundPITRecord[] }> {
+    if (this.staticDebounceTimer) {
+      clearTimeout(this.staticDebounceTimer);
+      this.staticDebounceTimer = null;
+    }
+    return this.flushStaticBuffer();
+  }
+
+  private static async flushStaticBuffer(): Promise<{ success: boolean; count: number; items: InboundPITRecord[] }> {
+    if (this.isSyncing) {
+      return { success: true, count: 0, items: [] };
+    }
+
+    this.isSyncing = true;
+    const itemsToSync = [...this.staticBuffer];
+    this.staticBuffer = [];
+
+    if (itemsToSync.length === 0) {
+      this.isSyncing = false;
+      return { success: true, count: 0, items: [] };
+    }
+
+    const rankedItems = PriorityRanking.rankItems(itemsToSync).map((item) => ({
+      ...item,
+      status: 'synced' as const,
+    }));
+
+    try {
+      const existing = PAIOSStorage.getItem<InboundPITRecord[]>('paios_precontext_pit', []) || [];
+      const updatedList = [...rankedItems, ...existing].slice(0, 100);
+      PAIOSStorage.setItem('paios_precontext_pit', updatedList);
+
+      if (typeof window !== 'undefined') {
+        const event = new CustomEvent('precontext_pit_synced', {
+          detail: {
+            count: rankedItems.length,
+            items: rankedItems,
+            timestamp: Date.now(),
+          },
+        });
+        window.dispatchEvent(event);
+      }
+
+      return {
+        success: true,
+        count: rankedItems.length,
+        items: rankedItems,
+      };
+    } catch (err) {
+      console.warn('[PreContextBroker] Storage flush warning:', err);
+      return {
+        success: false,
+        count: 0,
+        items: [],
+      };
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  static getBufferCount(): number {
+    return this.staticBuffer.length;
+  }
+
+  static getSyncedRecords(): InboundPITRecord[] {
+    return PAIOSStorage.getItem<InboundPITRecord[]>('paios_precontext_pit', []) || [];
+  }
+
+  static clearAll(): void {
+    this.staticBuffer = [];
+    if (this.staticDebounceTimer) {
+      clearTimeout(this.staticDebounceTimer);
+      this.staticDebounceTimer = null;
+    }
+    PAIOSStorage.removeItem('paios_precontext_pit');
+  }
 }
+
+export default PreContextBroker;

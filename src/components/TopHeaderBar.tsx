@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Sun, Moon, Settings, Cpu, LogOut, Bell, Compass } from 'lucide-react';
+import { Search, Sun, Moon, Settings, Cpu, LogOut, Bell, Compass, RefreshCw } from 'lucide-react';
 import { CloudSyncBanner } from './CloudSyncBanner';
 import { AutoUpdateSyncBanner } from './AutoUpdateSyncBanner';
 import { PaiosUser } from '../firebase';
 import { getNotificationsHistory } from '../utils/notifications';
+import { PreContextBroker } from '../core/broker/PreContextBroker';
 
 interface TopHeaderBarProps {
   userName?: string;
@@ -30,6 +31,7 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
   onOpenTour,
 }) => {
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isForceSyncing, setIsForceSyncing] = useState(false);
 
   const checkUnread = () => {
     const history = getNotificationsHistory();
@@ -41,6 +43,18 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
     window.addEventListener('paios_notification_change', checkUnread);
     return () => window.removeEventListener('paios_notification_change', checkUnread);
   }, []);
+
+  const handleForceSync = async () => {
+    setIsForceSyncing(true);
+    try {
+      await PreContextBroker.triggerForceSync();
+      if (onSyncComplete) onSyncComplete();
+    } catch (err) {
+      console.warn('[Header] Force sync error:', err);
+    } finally {
+      setTimeout(() => setIsForceSyncing(false), 600);
+    }
+  };
 
   return (
     <header className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur-md border-b border-slate-800/80 px-3 py-2 sm:px-4 sm:py-2.5 text-slate-100 shadow-sm pt-[env(safe-area-inset-top,0px)]">
@@ -59,6 +73,18 @@ export const TopHeaderBar: React.FC<TopHeaderBarProps> = ({
         <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar">
           <CloudSyncBanner compact onSyncComplete={onSyncComplete} />
           <AutoUpdateSyncBanner compact />
+
+          {/* Rule B2 Force Sync Trigger Button */}
+          <button
+            onClick={handleForceSync}
+            disabled={isForceSyncing}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-medium transition-colors shrink-0 min-h-[38px] disabled:opacity-50"
+            title="Force Sync Inbound PreContext Broker Data (Rule B2)"
+            aria-label="Force Sync Data"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-indigo-400 ${isForceSyncing ? 'animate-spin' : ''}`} />
+            <span className="hidden md:inline">{isForceSyncing ? 'Syncing...' : 'Force Sync'}</span>
+          </button>
 
           {onOpenTour && (
             <button
