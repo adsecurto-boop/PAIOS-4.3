@@ -29,7 +29,6 @@ import { AuthModal } from './components/AuthModal';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { SetupWizardModal } from './components/SetupWizardModal';
 import { UpdatePromptModal } from './components/UpdatePromptModal';
-import { AuthModal } from './components/AuthModal';
 import { dispatchNotification } from './utils/notifications';
 import { initBackgroundVersionChecker, onVersionUpdateAvailable, VersionManifest } from './utils/versionCheck';
 
@@ -369,8 +368,14 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleCompleteOnboarding = () => {
+  const handleCompleteOnboarding = (goals?: any[]) => {
     try {
+      if (goals && Array.isArray(goals) && goals.length > 0) {
+        PAIOSStorage.updateSettings({ goals, onboardingCompleted: true });
+        PAIOSStorage.setItem('paios_goals', goals);
+      } else {
+        PAIOSStorage.updateSettings({ onboardingCompleted: true });
+      }
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('paios_onboarding_completed', 'true');
       }
