@@ -7,22 +7,39 @@ const dbPath =
   process.env.DB_PATH ||
   path.join(process.cwd(), 'data', 'paios5.sqlite');
 
-if (dbPath !== ':memory:') {
-  const dir = path.dirname(dbPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+function createDatabaseInstance(): Database.Database {
+  if (dbPath !== ':memory:') {
+    const dir = path.dirname(dbPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  }
+
+  try {
+    const instance = new Database(dbPath);
+    try {
+      instance.pragma('journal_mode = WAL');
+    } catch (_) {}
+    instance.pragma('foreign_keys = ON');
+    return instance;
+  } catch (err) {
+    console.warn('[DB] SQLite open failed. Attempting shm/wal clean recovery...', err);
+    if (dbPath !== ':memory:') {
+      try {
+        if (fs.existsSync(`${dbPath}-shm`)) fs.unlinkSync(`${dbPath}-shm`);
+        if (fs.existsSync(`${dbPath}-wal`)) fs.unlinkSync(`${dbPath}-wal`);
+      } catch (_) {}
+    }
+    const instance = new Database(dbPath);
+    try {
+      instance.pragma('journal_mode = WAL');
+    } catch (_) {}
+    instance.pragma('foreign_keys = ON');
+    return instance;
   }
 }
 
-export const db = new Database(dbPath);
-
-// Enable WAL mode & foreign key constraints
-try {
-  db.pragma('journal_mode = WAL');
-} catch (e) {
-  // Ignored if memory db
-}
-db.pragma('foreign_keys = ON');
+export const db = createDatabaseInstance();
 
 // Initialize database schema
 db.exec(`

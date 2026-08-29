@@ -17,6 +17,14 @@ local.properties
 .env
 debug.keystore
 
+# Database & Lock Files
+data/*.sqlite*
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+backups/*.sqlite*
+logs/
+
 # Ensure Android resources, xml templates, and drawable mipmaps are NEVER ignored
 !android/app/src/main/res/**/*
 node_modules

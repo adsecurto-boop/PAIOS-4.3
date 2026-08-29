@@ -45,18 +45,40 @@ var import_better_sqlite3 = __toESM(require("better-sqlite3"), 1);
 var import_path = __toESM(require("path"), 1);
 var import_fs = __toESM(require("fs"), 1);
 var dbPath = process.env.SQLITE_DB_PATH || process.env.DB_PATH || import_path.default.join(process.cwd(), "data", "paios5.sqlite");
-if (dbPath !== ":memory:") {
-  const dir = import_path.default.dirname(dbPath);
-  if (!import_fs.default.existsSync(dir)) {
-    import_fs.default.mkdirSync(dir, { recursive: true });
+function createDatabaseInstance() {
+  if (dbPath !== ":memory:") {
+    const dir = import_path.default.dirname(dbPath);
+    if (!import_fs.default.existsSync(dir)) {
+      import_fs.default.mkdirSync(dir, { recursive: true });
+    }
+  }
+  try {
+    const instance = new import_better_sqlite3.default(dbPath);
+    try {
+      instance.pragma("journal_mode = WAL");
+    } catch (_) {
+    }
+    instance.pragma("foreign_keys = ON");
+    return instance;
+  } catch (err) {
+    console.warn("[DB] SQLite open failed. Attempting shm/wal clean recovery...", err);
+    if (dbPath !== ":memory:") {
+      try {
+        if (import_fs.default.existsSync(`${dbPath}-shm`)) import_fs.default.unlinkSync(`${dbPath}-shm`);
+        if (import_fs.default.existsSync(`${dbPath}-wal`)) import_fs.default.unlinkSync(`${dbPath}-wal`);
+      } catch (_) {
+      }
+    }
+    const instance = new import_better_sqlite3.default(dbPath);
+    try {
+      instance.pragma("journal_mode = WAL");
+    } catch (_) {
+    }
+    instance.pragma("foreign_keys = ON");
+    return instance;
   }
 }
-var db = new import_better_sqlite3.default(dbPath);
-try {
-  db.pragma("journal_mode = WAL");
-} catch (e) {
-}
-db.pragma("foreign_keys = ON");
+var db = createDatabaseInstance();
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
