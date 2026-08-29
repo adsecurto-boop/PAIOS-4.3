@@ -493,7 +493,7 @@ function load<T>(key: string, fallback: T): T {
   try {
     if (typeof localStorage !== 'undefined') {
       const data = localStorage.getItem(key);
-      if (data) {
+      if (data !== null && data !== undefined) {
         const parsed = JSON.parse(data);
         memoryCache.set(key, { value: parsed, timestamp: Date.now() });
         return parsed as T;
@@ -504,13 +504,43 @@ function load<T>(key: string, fallback: T): T {
   }
 
   // 3. Fallback to default initial state and cache it
-  memoryCache.set(key, { value: fallback, timestamp: Date.now() });
+  if (fallback !== null && fallback !== undefined) {
+    memoryCache.set(key, { value: fallback, timestamp: Date.now() });
+  }
   return fallback;
+}
+
+function getAuthToken(): string | null {
+  if (typeof localStorage !== 'undefined') {
+    return localStorage.getItem('paios_auth_token');
+  }
+  return null;
+}
+
+function setAuthToken(token: string | null): void {
+  if (typeof localStorage !== 'undefined') {
+    if (token) {
+      localStorage.setItem('paios_auth_token', token);
+    } else {
+      localStorage.removeItem('paios_auth_token');
+    }
+  }
 }
 
 function save<T>(key: string, value: T): void {
   const now = Date.now();
-  // 1. Synchronously populate in-memory cache (0ms read latency guaranteed)
+  let oldValue: any = null;
+
+  if (memoryCache.has(key)) {
+    oldValue = memoryCache.get(key)?.value ?? null;
+  } else if (typeof localStorage !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) oldValue = JSON.parse(raw);
+    } catch {}
+  }
+
+  // 1. Synchronously populate in-memory cache
   memoryCache.set(key, { value, timestamp: now });
 
   // 2. Persist to LocalStorage
@@ -533,7 +563,6 @@ function save<T>(key: string, value: T): void {
         timestamp: now,
         action: 'SAVE',
       });
-      // Save queue silently without recursion
       memoryCache.set(PENDING_SYNC_KEY, { value: updatedQueue, timestamp: now });
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(updatedQueue));
@@ -541,15 +570,112 @@ function save<T>(key: string, value: T): void {
     } catch (e) {}
   }
 
-  // 4. Dispatch storage event for UI updates & real-time sync listeners
+  // 4. Dispatch storage event for UI reactivity & listeners
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new Event('paios_storage_change'));
+    const changeEvent = new CustomEvent('paios_storage_change', {
+      detail: {
+        key,
+        value,
+        oldValue,
+        action: 'set',
+        timestamp: now,
+      },
+    });
+    window.dispatchEvent(changeEvent);
     window.dispatchEvent(new CustomEvent('paios_cache_updated', { detail: { key, timestamp: now } }));
   }
+
+  // 5. Non-blocking background sync push if authenticated session exists
+  if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+    const token = getAuthToken();
+    if (token && key !== PENDING_SYNC_KEY && !key.startsWith('paios_auth_')) {
+      fetch('/api/sync/push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          key,
+          payload: value,
+        }),
+      }).catch((err) => {
+        console.warn('[PAIOSStorage] Background sync push failed:', err);
+      });
+    }
+  }
+}
+
+function remove(key: string): void {
+  const existed = memoryCache.has(key) || (typeof localStorage !== 'undefined' && localStorage.getItem(key) !== null);
+  memoryCache.delete(key);
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem(key);
+  }
+
+  if (existed && typeof window !== 'undefined') {
+    const changeEvent = new CustomEvent('paios_storage_change', {
+      detail: {
+        key,
+        value: null,
+        action: 'remove',
+        timestamp: Date.now(),
+      },
+    });
+    window.dispatchEvent(changeEvent);
+
+    const token = getAuthToken();
+    if (token && typeof fetch !== 'undefined' && !key.startsWith('paios_auth_')) {
+      fetch(`/api/sync/data?key=${encodeURIComponent(key)}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }).catch(() => {});
+    }
+  }
+}
+
+export interface PAIOSStorageAdapter {
+  getItem<T = any>(key: string, fallback?: T): T | null;
+  setItem<T = any>(key: string, value: T): void;
+  removeItem(key: string): void;
+  clear(): void;
+  getAuthToken(): string | null;
+  setAuthToken(token: string | null): void;
 }
 
 // Storage Manager Instance
 export const storage = {
+  // --- ADAPTER / LOW-LEVEL CRUD CONTRACT METHODS ---
+  getItem<T = any>(key: string, fallback: T | null = null): T | null {
+    return load(key, fallback);
+  },
+  setItem<T = any>(key: string, value: T): void {
+    save(key, value);
+  },
+  removeItem(key: string): void {
+    remove(key);
+  },
+  clear(): void {
+    memoryCache.clear();
+    if (typeof localStorage !== 'undefined') {
+      localStorage.clear();
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('paios_storage_change', {
+          detail: { key: '*', value: null, action: 'clear', timestamp: Date.now() },
+        })
+      );
+    }
+  },
+  getAuthToken(): string | null {
+    return getAuthToken();
+  },
+  setAuthToken(token: string | null): void {
+    setAuthToken(token);
+  },
   // --- SETTINGS ---
   getSettings(): UserSettings {
     return load(STORAGE_KEYS.SETTINGS, initialSettings);

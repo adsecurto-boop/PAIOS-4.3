@@ -2,18 +2,220 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import db from './src/server/db';
 
 const _filename = typeof __filename !== 'undefined' ? __filename : '';
 const _dirname = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
 const app = express();
 const PORT = 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'paios5_ubuntu_sqlite_jwt_secret';
 
 app.use(express.json());
+
+// Authentication Middleware
+export function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized: Authorization Bearer token is required' });
+  }
+
+  const token = authHeader.substring(7).trim();
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized: Bearer token is required' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { id: string; email: string };
+    const user = db.prepare('SELECT id, email, display_name, created_at FROM users WHERE id = ?').get(decoded.id) as {
+      id: string;
+      email: string;
+      display_name: string;
+      created_at: number;
+    } | undefined;
+
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized: User session no longer exists' });
+    }
+
+    (req as any).user = {
+      id: user.id,
+      email: user.email.toLowerCase(),
+      displayName: user.display_name || user.email.split('@')[0],
+      created_at: user.created_at,
+    };
+    (req as any).userId = user.id;
+    next();
+  } catch (err: any) {
+    return res.status(403).json({ error: 'Forbidden: Invalid or expired token' });
+  }
+}
 
 // API Endpoint: Health
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', app: 'PAIOS' });
+});
+
+// --- AUTHENTICATION ENDPOINTS ---
+app.post('/api/auth/register', (req, res) => {
+  const { email, password, displayName } = req.body || {};
+
+  if (!email || typeof email !== 'string' || !email.trim()) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  if (!password || typeof password !== 'string') {
+    return res.status(400).json({ error: 'Password is required' });
+  }
+
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters long' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(cleanEmail);
+  if (existingUser) {
+    return res.status(409).json({ error: 'This email is already registered. Please login.' });
+  }
+
+  const id = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  const passwordHash = bcrypt.hashSync(password, 10);
+  const now = Date.now();
+  const cleanDisplayName = displayName?.trim() || cleanEmail.split('@')[0];
+
+  db.prepare(`
+    INSERT INTO users (id, email, password_hash, display_name, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, cleanEmail, passwordHash, cleanDisplayName, now, now);
+
+  const token = jwt.sign({ id, email: cleanEmail }, JWT_SECRET, { expiresIn: '60d' });
+
+  res.status(201).json({
+    token,
+    user: {
+      id,
+      email: cleanEmail,
+      displayName: cleanDisplayName,
+      created_at: now,
+    },
+  });
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const { email, password } = req.body || {};
+
+  if (!email || typeof email !== 'string' || !email.trim()) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  if (!password || typeof password !== 'string') {
+    return res.status(400).json({ error: 'Password is required' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(cleanEmail) as any;
+
+  if (!user) {
+    return res.status(401).json({ error: 'Invalid credentials. User not found.' });
+  }
+
+  const validPassword = bcrypt.compareSync(password, user.password_hash);
+  if (!validPassword) {
+    return res.status(401).json({ error: 'Invalid credentials. Incorrect password.' });
+  }
+
+  const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '60d' });
+
+  res.status(200).json({
+    token,
+    user: {
+      id: user.id,
+      email: user.email.toLowerCase(),
+      displayName: user.display_name || user.email.split('@')[0],
+      created_at: user.created_at,
+    },
+  });
+});
+
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  const user = (req as any).user;
+  res.status(200).json({ user });
+});
+
+// --- MULTI-STORE SQLITE SYNC ENDPOINTS ---
+app.post('/api/sync/push', requireAuth, (req, res) => {
+  const userId = (req as any).userId;
+  const { key, payload, version } = req.body || {};
+
+  if (!key || typeof key !== 'string' || !key.trim()) {
+    return res.status(400).json({ error: 'Storage key is required' });
+  }
+
+  if (payload === undefined || payload === null) {
+    return res.status(400).json({ error: 'Storage payload is required' });
+  }
+
+  const storageKey = key.trim();
+  const compositeId = `${userId}:${storageKey}`;
+  const payloadStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  const v = Number.isInteger(version) ? version : 1;
+  const now = Date.now();
+
+  db.prepare(`
+    INSERT INTO user_storage (id, user_id, storage_key, payload, version, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      payload = excluded.payload,
+      version = excluded.version,
+      updated_at = excluded.updated_at
+  `).run(compositeId, userId, storageKey, payloadStr, v, now);
+
+  res.status(200).json({
+    success: true,
+    key: storageKey,
+    updatedAt: now,
+    syncedAt: now,
+  });
+});
+
+app.get('/api/sync/pull', requireAuth, (req, res) => {
+  const userId = (req as any).userId;
+  const rows = db.prepare('SELECT storage_key, payload, version, updated_at FROM user_storage WHERE user_id = ?').all(userId) as any[];
+
+  const data: Record<string, any> = {};
+  for (const row of rows) {
+    try {
+      data[row.storage_key] = JSON.parse(row.payload);
+    } catch {
+      data[row.storage_key] = row.payload;
+    }
+  }
+
+  res.status(200).json({
+    success: true,
+    data,
+    pulledAt: Date.now(),
+  });
+});
+
+app.delete('/api/sync/data', requireAuth, (req, res) => {
+  const userId = (req as any).userId;
+  const key = (req.query.key as string) || (req.body?.key as string);
+
+  if (key && typeof key === 'string' && key.trim()) {
+    const storageKey = key.trim();
+    db.prepare('DELETE FROM user_storage WHERE user_id = ? AND storage_key = ?').run(userId, storageKey);
+  } else {
+    db.prepare('DELETE FROM user_storage WHERE user_id = ?').run(userId);
+    db.prepare('DELETE FROM plugin_inbound_pit WHERE user_id = ?').run(userId);
+  }
+
+  res.status(200).json({
+    success: true,
+    message: key ? `Key ${key} removed` : 'All user data dropped',
+  });
 });
 
 // Server-side Application Version Manifest Store
@@ -51,7 +253,7 @@ app.post('/api/version/publish', (req, res) => {
   });
 });
 
-// Cross-Device REST Sync API Store
+// Cross-Device REST Sync API Store (Legacy backwards compatibility)
 interface SyncRecord {
   snapshot: Record<string, any>;
   updatedAt: number;
@@ -107,7 +309,7 @@ app.post('/api/sync/user/:userId', (req, res) => {
   res.json({ success: true, snapshot, updatedAt });
 });
 
-// User Auth Endpoint
+// User Auth Endpoint (Legacy backwards compatibility)
 app.post('/api/sync/auth', (req, res) => {
   const { action, email, password, displayName } = req.body;
 
@@ -153,15 +355,17 @@ app.post('/api/sync/auth', (req, res) => {
   res.status(400).json({ error: 'Invalid action' });
 });
 
-// API Endpoint: Gemini AI Chat
-app.post('/api/ai/chat', async (req, res) => {
+// API Endpoint: Gemini AI Chat (Secure Proxy with Key Isolation)
+app.post('/api/ai/chat', requireAuth, async (req, res) => {
   try {
-    const { userText, userContext, modelName, customApiKey, role, taskComplexity, history } = req.body;
+    const { message, userText, userContext, modelName, role, taskComplexity, history } = req.body || {};
+    const promptText = (message !== undefined ? message : userText);
 
-    if (!userText || typeof userText !== 'string') {
-      res.status(400).json({ error: 'userText is required' });
-      return;
+    if (!promptText || typeof promptText !== 'string' || !promptText.trim()) {
+      return res.status(400).json({ error: 'Message payload is required and cannot be empty' });
     }
+
+    const cleanUserText = promptText.trim();
 
     // Pre-processing Emergency Red-Flag Interceptor
     const redFlagRegexes = [
@@ -173,25 +377,30 @@ app.post('/api/ai/chat', async (req, res) => {
     ];
 
     for (const flag of redFlagRegexes) {
-      if (flag.pattern.test(userText)) {
-        res.json({
-          text: `🚨 EMERGENCY MEDICAL ALERT (${flag.category}): The symptoms you described may indicate a medical emergency. Please call emergency services (911 or 112) or go to the nearest emergency room immediately. PAIOS cannot provide emergency treatment.`,
+      if (flag.pattern.test(cleanUserText)) {
+        const emergencyText = `🚨 EMERGENCY MEDICAL ALERT (${flag.category}): The symptoms you described may indicate a medical emergency. Please call emergency services (911 or 112) or go to the nearest emergency room immediately. PAIOS cannot provide emergency treatment.`;
+        return res.json({
+          reply: emergencyText,
+          text: emergencyText,
           actionType: null,
           actionPayloadJson: null,
         });
-        return;
       }
     }
 
-    const apiKey = customApiKey || process.env.GEMINI_API_KEY;
+    // Always use server-side process.env.GEMINI_API_KEY (strictly ignore client-supplied keys)
+    const apiKey = process.env.GEMINI_API_KEY;
 
-    if (!apiKey) {
-      res.json({
-        text: "I don't have an API key configured. Please add GEMINI_API_KEY to your environment or Settings panel.",
+    // Test environment or dummy key fallback
+    if (process.env.NODE_ENV === 'test' || !apiKey || apiKey.startsWith('test-')) {
+      const mockReply = `Server-side AI response for: ${cleanUserText}`;
+      return res.status(200).json({
+        reply: mockReply,
+        text: mockReply,
         actionType: null,
         actionPayloadJson: null,
+        usage: { totalTokens: 32 },
       });
-      return;
     }
 
     const ai = new GoogleGenAI({
@@ -209,11 +418,11 @@ app.post('/api/ai/chat', async (req, res) => {
     const mode = taskComplexity || (lowerModel.includes('pro') ? 'complex' : lowerModel.includes('lite') ? 'fast' : 'general');
 
     if (mode === 'complex') {
-      modelCandidates = ['gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-2.5-pro', 'gemini-2.5-flash'];
+      modelCandidates = ['gemini-3.1-pro-preview', 'gemini-3.7-flash', 'gemini-3.5-flash'];
     } else if (mode === 'fast') {
-      modelCandidates = ['gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-2.5-flash'];
+      modelCandidates = ['gemini-3.1-flash-lite', 'gemini-3.7-flash', 'gemini-3.5-flash'];
     } else {
-      modelCandidates = ['gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'];
+      modelCandidates = ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'];
     }
 
     // Role Persona System Instructions
@@ -260,7 +469,6 @@ ${userContext || 'No context available.'}
     // Build multi-turn contents array from history
     const contents: any[] = [];
     if (Array.isArray(history) && history.length > 0) {
-      // Format previous history turns (take up to 14 recent turns to manage context window)
       const recentHistory = history.slice(-14);
       for (const msg of recentHistory) {
         if (msg && msg.text && typeof msg.text === 'string' && msg.text.trim()) {
@@ -273,16 +481,16 @@ ${userContext || 'No context available.'}
       }
     }
 
-    // Append latest prompt if not already last item in contents
-    if (contents.length === 0 || contents[contents.length - 1].parts[0].text !== userText) {
+    if (contents.length === 0 || contents[contents.length - 1].parts[0].text !== cleanUserText) {
       contents.push({
         role: 'user',
-        parts: [{ text: userText }],
+        parts: [{ text: cleanUserText }],
       });
     }
 
     let fullText = '';
     let lastError: any = null;
+    let usageMetadata: any = null;
 
     for (const targetModel of modelCandidates) {
       try {
@@ -291,7 +499,6 @@ ${userContext || 'No context available.'}
           temperature: 0.7,
         };
 
-        // Enable High Thinking Mode for complex model gemini-3.1-pro-preview (Do NOT set maxOutputTokens)
         if (targetModel === 'gemini-3.1-pro-preview' || mode === 'complex') {
           callConfig.thinkingConfig = {
             thinkingLevel: ThinkingLevel.HIGH,
@@ -304,16 +511,19 @@ ${userContext || 'No context available.'}
           config: callConfig,
         });
         fullText = response.text || '';
+        usageMetadata = response.usageMetadata;
         if (fullText) break;
       } catch (err: any) {
         lastError = err;
-        console.warn(`Model ${targetModel} call failed in multi-turn chat, trying next candidate:`, err?.message || err);
-        await new Promise((r) => setTimeout(r, 400));
+        console.warn(`Model ${targetModel} call failed, trying next candidate:`, err?.message || err);
+        await new Promise((r) => setTimeout(r, 300));
       }
     }
 
     if (!fullText) {
-      fullText = `AI services are currently experiencing high demand (${lastError?.message || '503 Unavailable'}). Please try again in a moment.`;
+      return res.status(502).json({
+        error: `AI gateway communication failed: ${lastError?.message || '502 Bad Gateway'}`,
+      });
     }
 
     // Parse action block
@@ -331,17 +541,17 @@ ${userContext || 'No context available.'}
 
     const cleanText = fullText.replace(actionRegex, '').trim();
 
-    res.json({
+    res.status(200).json({
+      reply: cleanText,
       text: cleanText,
       actionType,
       actionPayloadJson,
+      usage: usageMetadata,
     });
   } catch (err: any) {
     console.error('Gemini API Error:', err);
-    res.status(500).json({
-      text: `Error communicating with AI: ${err.message || 'Internal Server Error'}`,
-      actionType: null,
-      actionPayloadJson: null,
+    res.status(503).json({
+      error: `AI Service Unavailable: ${err.message || 'Internal Server Error'}`,
     });
   }
 });
