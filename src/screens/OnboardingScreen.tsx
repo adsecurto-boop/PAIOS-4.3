@@ -1,199 +1,414 @@
-import React, { useState } from 'react';
-import { Target, CheckCircle2, ArrowRight, Sparkles, Brain, Shield, ChevronRight } from 'lucide-react';
-import { GoalExtractor, ParsedGoal } from '../core/ai/GoalExtractor';
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  Sparkles,
+  Send,
+  CheckCircle2,
+  AlertCircle,
+  Plus,
+  ArrowRight,
+  ListTodo,
+  Layers,
+  Flag,
+  Check,
+  Compass,
+  Cpu,
+} from 'lucide-react';
 import { PAIOSStorage } from '../storage';
+import { GoalExtractor, ExtractedGoal, Goal, ParsedGoal } from '../core/ai/GoalExtractor';
+import { PriorityLevel } from '../types';
 
 export interface OnboardingScreenProps {
-  onCompleteOnboarding: (goals: ParsedGoal[]) => void;
+  onComplete?: () => void;
+  onCompleteOnboarding?: (goals: ParsedGoal[] | Goal[]) => void;
   userName?: string;
 }
 
+interface Message {
+  id: string;
+  sender: 'ai' | 'user';
+  text: string;
+  timestamp: number;
+}
+
+const QUICK_STARTERS = [
+  {
+    title: 'SDET & Software Automation Career',
+    prompt: 'My goal is to become a Lead SDET. Definition of done is passing ISTQB certification and landing a Senior SDET role. Sub-projects: 1. Master Playwright & Python automation 2. Build end-to-end CI/CD test harness 3. Complete ISTQB Advanced test syllabus. Priority: HIGH',
+  },
+  {
+    title: 'Ship Full-Stack AI Application (PAIOS 5.0)',
+    prompt: 'My goal is to build and deploy PAIOS 5.0. Definition of done is shipping desktop and web version with offline SQLite sync and passing 100% ATDD tests. Sub-projects: 1. SQLite & JWT Auth layer 2. Conversational Onboarding 3. Health & Medication Hub. Priority: CRITICAL',
+  },
+  {
+    title: 'Health, Focus & Routine Optimization',
+    prompt: 'My goal is to achieve daily peak focus and physical well-being. Definition of done is logging 4+ hours deep work daily, zero missed medication doses, and consistent sleep schedule. Sub-projects: 1. Daily morning check-in & evening review 2. Medication adherence tracking 3. Regular cardio exercise. Priority: HIGH',
+  },
+];
+
 export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
+  onComplete,
   onCompleteOnboarding,
   userName = 'Alex',
 }) => {
-  const [step, setStep] = useState<'GOAL_PROBE' | 'DOD_REVIEW' | 'COMPLETE'>('GOAL_PROBE');
-  const [goalInput, setGoalInput] = useState('');
-  const [extractedGoals, setExtractedGoals] = useState<ParsedGoal[]>([]);
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: 'msg_welcome',
+      sender: 'ai',
+      text: `Hello ${userName}! Welcome to PAIOS 5.0 — your Personal AI Operating System. Let's calibrate your workspace by discovering your primary goals, Definition of Done, and milestones. What is the most important goal you want to conquer?`,
+      timestamp: Date.now(),
+    },
+  ]);
+
+  const [inputVal, setInputVal] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [extractedGoals, setExtractedGoals] = useState<Goal[]>([]);
+  const [currentExtracted, setCurrentExtracted] = useState<ExtractedGoal>({
+    title: '',
+    projects: [],
+    definitionOfDone: '',
+    priority: 'HIGH',
+    category: 'Work',
+    isComplete: false,
+    missingFields: ['title', 'definitionOfDone', 'projects'],
+  });
 
-  const handleProbeGoals = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!goalInput.trim()) return;
+  const chatBottomRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    if (typeof chatBottomRef.current?.scrollIntoView === 'function') {
+      chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
+
+  const handleSendMessage = async (userTextToSend?: string) => {
+    const text = (userTextToSend !== undefined ? userTextToSend : inputVal).trim();
+    if (!text || isProcessing) return;
+
+    if (!userTextToSend) {
+      setInputVal('');
+    }
+
+    const userMsg: Message = {
+      id: `usr_${Date.now()}`,
+      sender: 'user',
+      text,
+      timestamp: Date.now(),
+    };
+
+    const newHistory = [...messages, userMsg];
+    setMessages(newHistory);
     setIsProcessing(true);
 
     try {
-      // Conversational Goal Probing with offline safety
-      const goals = GoalExtractor.extractGoalsFromConversation(goalInput);
-      setExtractedGoals(goals);
-      setStep('DOD_REVIEW');
-    } catch (err) {
-      console.warn('[Onboarding] Goal extraction fallback:', err);
-      // Fallback goal if parsing fails
-      const fallbackGoal: ParsedGoal = {
-        id: `goal_${Date.now()}`,
-        title: goalInput.trim(),
-        category: 'Career',
-        definitionOfDone: `Complete key milestones for "${goalInput.trim()}".`,
-        milestones: GoalExtractor.generateMilestones(goalInput.trim(), 'Achieve primary goal'),
-        priority: 'HIGH',
-        createdAtMillis: Date.now(),
+      // 1. Run conversational goal extractor
+      const extracted = GoalExtractor.extractGoalFromConversation(newHistory);
+      setCurrentExtracted(extracted);
+
+      let aiReplyText = '';
+
+      if (extracted.isComplete) {
+        const normalized = GoalExtractor.normalizeGoal(extracted);
+        // Check if goal already in list
+        const exists = extractedGoals.some(
+          (g) => g.title.toLowerCase() === normalized.title.toLowerCase()
+        );
+        if (!exists) {
+          setExtractedGoals((prev) => [...prev, normalized]);
+        }
+
+        aiReplyText = `Terrific! I've structured your goal: "${extracted.title}" with ${extracted.projects.length} milestones and a defined Definition of Done.\n\nDefinition of Done: ${extracted.definitionOfDone}\nPriority: ${extracted.priority}\n\nWould you like to add another goal, or proceed to your workspace?`;
+      } else {
+        const probe = GoalExtractor.probeMissingGoalDetails(extracted);
+        aiReplyText = probe || 'Could you provide more details about your goal milestones and success criteria?';
+      }
+
+      const aiMsg: Message = {
+        id: `ai_${Date.now()}`,
+        sender: 'ai',
+        text: aiReplyText,
+        timestamp: Date.now(),
       };
-      setExtractedGoals([fallbackGoal]);
-      setStep('DOD_REVIEW');
+
+      setMessages((prev) => [...prev, aiMsg]);
+    } catch (err: any) {
+      console.error('Goal extraction error:', err);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleFinalizeOnboarding = () => {
-    try {
-      // 1. Get existing goals immutably
-      const existingRaw = PAIOSStorage.getItem<ParsedGoal[]>('paios_goals', []);
-      const existing = Array.isArray(existingRaw) ? existingRaw : [];
+  const handleApplyStarter = (starterPrompt: string) => {
+    handleSendMessage(starterPrompt);
+  };
 
-      // 2. Merge goals immutably
-      const updatedGoals = GoalExtractor.mergeGoalsImmutably(existing, extractedGoals);
+  const handleConfirmAndFinish = () => {
+    const currentSettings = PAIOSStorage.getSettings();
+    const finalGoalStrings = extractedGoals.map((g) => {
+      const projectsStr = g.projects
+        .map((p) => (typeof p === 'string' ? p : p.title))
+        .join(', ');
+      return `${g.title} (DoD: ${g.definitionOfDone} | Projects: ${projectsStr})`;
+    });
 
-      // 3. Persist to storage without mutating parent input objects
-      PAIOSStorage.setItem('paios_goals', updatedGoals);
-
-      // 4. Update user settings goals string list
-      const settings = PAIOSStorage.getSettings();
-      const newGoalTitles = extractedGoals.map((g) => g.title);
-      const mergedTitles = Array.from(new Set([...newGoalTitles, ...(settings.goals || [])]));
-      PAIOSStorage.saveSettings({ ...settings, goals: mergedTitles });
-
-      setStep('COMPLETE');
-      onCompleteOnboarding(updatedGoals);
-    } catch (err) {
-      console.error('[Onboarding] Storage save error:', err);
-      onCompleteOnboarding(extractedGoals);
+    // Fallback if none created yet
+    if (finalGoalStrings.length === 0 && currentExtracted.title) {
+      finalGoalStrings.push(
+        `${currentExtracted.title} (DoD: ${currentExtracted.definitionOfDone || 'Complete milestones'} | Priority: ${currentExtracted.priority})`
+      );
+    } else if (finalGoalStrings.length === 0) {
+      finalGoalStrings.push(
+        'Lead SDET & Automation Mastery',
+        'Ship PAIOS 5.0 Desktop & Web Platform',
+        'Daily Focus & Adherence Routine'
+      );
     }
+
+    // Persist to Settings
+    PAIOSStorage.saveSettings({
+      ...currentSettings,
+      goals: finalGoalStrings,
+      onboardingCompleted: true,
+    });
+
+    // Persist structured goals array to storage
+    PAIOSStorage.setItem('paios_goals', extractedGoals);
+
+    // Also seed starter tasks for identified projects
+    extractedGoals.forEach((g) => {
+      g.projects.forEach((proj) => {
+        const title = typeof proj === 'string' ? proj : proj.title;
+        PAIOSStorage.addTask(title, g.category || 'Work', g.priority === 'CRITICAL' || g.priority === 'HIGH', `Sub-project for goal: ${g.title}`);
+      });
+    });
+
+    if (onComplete) onComplete();
+    if (onCompleteOnboarding) onCompleteOnboarding(extractedGoals as any);
+  };
+
+  const handleSkip = () => {
+    const currentSettings = PAIOSStorage.getSettings();
+    PAIOSStorage.saveSettings({
+      ...currentSettings,
+      onboardingCompleted: true,
+    });
+    if (onComplete) onComplete();
+    if (onCompleteOnboarding) onCompleteOnboarding([]);
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-4 sm:p-6 select-none pt-safe pb-safe safe-area-left safe-area-right">
-      {/* Header */}
-      <div className="w-full max-w-2xl mx-auto text-center pt-4 sm:pt-8">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 shadow-xl shadow-indigo-500/20 mb-4 animate-bounce">
-          <Brain className="w-8 h-8 text-white" />
+    <div
+      id="onboarding-screen-container"
+      data-testid="onboarding-screen"
+      className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-4 sm:p-8 selection:bg-indigo-500 selection:text-white pt-safe pb-safe safe-area-left safe-area-right select-none"
+    >
+      {/* Top Header */}
+      <div className="max-w-6xl w-full mx-auto flex items-center justify-between pb-6 border-b border-slate-800/80">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-blue-500 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
+            <Cpu className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-white tracking-tight">PAIOS 5.0 Goal Discovery</h1>
+            <p className="text-xs text-slate-400">Conversational calibration & immutability setup</p>
+          </div>
         </div>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-2">
-          Welcome to PAIOS 5.0, {userName}!
-        </h1>
-        <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto leading-relaxed">
-          Your Personal AI Operating System needs to align with your high-impact long-term goals.
-        </p>
+
+        <button
+          id="onboarding-skip-btn"
+          data-testid="onboarding-skip-btn"
+          onClick={handleSkip}
+          className="text-xs font-medium text-slate-400 hover:text-white px-3 py-1.5 rounded-lg border border-slate-800 hover:border-slate-700 transition-colors"
+        >
+          Skip to Dashboard
+        </button>
       </div>
 
-      {/* Card Content Container */}
-      <div className="w-full max-w-xl mx-auto my-auto bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl">
-        {step === 'GOAL_PROBE' && (
-          <form onSubmit={handleProbeGoals} className="space-y-6">
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-slate-200 flex items-center gap-2">
-                <Target className="w-4 h-4 text-indigo-400" />
-                <span>What are your top goals right now?</span>
-              </label>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Describe what you want to achieve (e.g., "Pass ISTQB CTFL certification, build PAIOS, and master Playwright automation").
-              </p>
+      {/* Main Grid: Chat on Left, Extracted Goal Card on Right */}
+      <div className="max-w-6xl w-full mx-auto flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 my-6 overflow-hidden">
+        {/* Left Column: Chat Conversation */}
+        <div className="lg:col-span-7 flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+          {/* Quick Starters Carousel */}
+          <div className="p-3 bg-slate-950/60 border-b border-slate-800">
+            <div className="flex items-center space-x-2 text-xs text-slate-400 mb-2">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="font-semibold text-slate-300">Quick Ambition Starters:</span>
             </div>
-
-            <textarea
-              required
-              rows={4}
-              placeholder="e.g. Become an SDET lead, pass ISTQB CTFL certification test next month, and build automated PAIOS testing suite..."
-              value={goalInput}
-              onChange={(e) => setGoalInput(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all resize-none"
-            />
-
-            <button
-              type="submit"
-              disabled={isProcessing || !goalInput.trim()}
-              className="w-full py-3.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition-all shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <span>Probe & Breakdown Goals</span>
-              <Sparkles className="w-4 h-4" />
-            </button>
-          </form>
-        )}
-
-        {step === 'DOD_REVIEW' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-indigo-400" />
-                <span>Extracted Goals & Definition of Done</span>
-              </h3>
-              <span className="text-xs font-mono text-indigo-400 bg-indigo-950/60 px-2.5 py-1 rounded-full border border-indigo-800/60">
-                {extractedGoals.length} Goal{extractedGoals.length > 1 ? 's' : ''} Identified
-              </span>
-            </div>
-
-            <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
-              {extractedGoals.map((goal, i) => (
-                <div key={goal.id} className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="font-semibold text-sm text-slate-100">
-                      {i + 1}. {goal.title}
-                    </span>
-                    <span className="text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded bg-indigo-950 text-indigo-400 border border-indigo-800/60 shrink-0">
-                      {goal.category}
-                    </span>
-                  </div>
-
-                  <div className="text-xs text-slate-400 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/60">
-                    <strong className="text-slate-300 font-medium">Definition of Done: </strong>
-                    {goal.definitionOfDone}
-                  </div>
-
-                  <div className="pt-1">
-                    <span className="text-[11px] font-medium text-slate-400 block mb-1">Milestones:</span>
-                    <div className="space-y-1">
-                      {goal.milestones.map((ms) => (
-                        <div key={ms.id} className="text-xs text-slate-400 flex items-center gap-2">
-                          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
-                          <span>{ms.title}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+            <div className="flex flex-wrap gap-2">
+              {QUICK_STARTERS.map((s, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleApplyStarter(s.prompt)}
+                  className="text-xs px-3 py-1.5 bg-slate-800/80 hover:bg-indigo-600/30 hover:border-indigo-500/50 border border-slate-700/80 rounded-lg text-slate-200 text-left transition-all"
+                >
+                  {s.title}
+                </button>
               ))}
             </div>
+          </div>
 
+          {/* Chat Messages Log */}
+          <div className="flex-1 p-4 overflow-y-auto space-y-4 max-h-[420px]" data-testid="onboarding-chat-messages">
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                    m.sender === 'user'
+                      ? 'bg-indigo-600 text-white rounded-br-none shadow-md shadow-indigo-600/20'
+                      : 'bg-slate-800/90 text-slate-200 border border-slate-700/80 rounded-bl-none'
+                  }`}
+                >
+                  <p className="whitespace-pre-line">{m.text}</p>
+                </div>
+              </div>
+            ))}
+            {isProcessing && (
+              <div className="flex justify-start">
+                <div className="bg-slate-800/90 text-slate-400 border border-slate-700/80 rounded-2xl rounded-bl-none px-4 py-2.5 text-xs flex items-center space-x-2 animate-pulse">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
+                  <span>Analyzing goal parameters & Definition of Done...</span>
+                </div>
+              </div>
+            )}
+            <div ref={chatBottomRef} />
+          </div>
+
+          {/* Chat Input Field */}
+          <div className="p-3 bg-slate-950/80 border-t border-slate-800 flex items-center space-x-2">
+            <input
+              id="onboarding-chat-input"
+              data-testid="onboarding-chat-input"
+              type="text"
+              value={inputVal}
+              onChange={(e) => setInputVal(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSendMessage();
+              }}
+              placeholder="Type your goal, milestones, or Definition of Done..."
+              className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            />
             <button
-              type="button"
-              onClick={handleFinalizeOnboarding}
-              className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm transition-all shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2"
+              id="onboarding-send-btn"
+              data-testid="onboarding-send-btn"
+              onClick={() => handleSendMessage()}
+              disabled={!inputVal.trim() || isProcessing}
+              className="p-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl shadow-md shadow-indigo-600/30 transition-all cursor-pointer disabled:cursor-not-allowed"
+              aria-label="Send Message"
             >
-              <span>Confirm & Activate Workspace</span>
-              <CheckCircle2 className="w-4 h-4" />
+              <Send className="w-4 h-4" />
             </button>
           </div>
-        )}
+        </div>
 
-        {step === 'COMPLETE' && (
-          <div className="text-center py-6 space-y-4">
-            <div className="w-12 h-12 rounded-full bg-emerald-950 border border-emerald-800 text-emerald-400 flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-6 h-6" />
+        {/* Right Column: Live Discovered Goal Extraction Card */}
+        <div className="lg:col-span-5 flex flex-col space-y-4">
+          {/* Active Goal Extractor Preview */}
+          <div
+            id="extracted-goal-card"
+            data-testid="extracted-goal-card"
+            className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex-1 flex flex-col justify-between"
+          >
+            <div>
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div className="flex items-center space-x-2">
+                  <Compass className="w-4 h-4 text-indigo-400" />
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">Goal Telemetry</h3>
+                </div>
+                {currentExtracted.isComplete ? (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center space-x-1">
+                    <Check className="w-3 h-3" />
+                    <span>Complete</span>
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center space-x-1">
+                    <AlertCircle className="w-3 h-3" />
+                    <span>Probing Info</span>
+                  </span>
+                )}
+              </div>
+
+              {/* Goal Title */}
+              <div className="mt-4">
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                  Primary Objective / Goal
+                </label>
+                <div className="p-2.5 bg-slate-950/80 border border-slate-800 rounded-xl text-sm font-medium text-slate-100">
+                  {currentExtracted.title || <span className="text-slate-600 italic">Awaiting goal statement...</span>}
+                </div>
+              </div>
+
+              {/* Definition of Done */}
+              <div className="mt-3">
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                  Definition of Done (DoD)
+                </label>
+                <div className="p-2.5 bg-slate-950/80 border border-slate-800 rounded-xl text-xs text-slate-300">
+                  {currentExtracted.definitionOfDone || (
+                    <span className="text-slate-600 italic">Awaiting success criteria / metric...</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Sub-Projects / Milestones */}
+              <div className="mt-3">
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                  Actionable Milestones ({currentExtracted.projects.length})
+                </label>
+                <div className="p-2.5 bg-slate-950/80 border border-slate-800 rounded-xl text-xs text-slate-300 space-y-1.5 max-h-36 overflow-y-auto">
+                  {currentExtracted.projects.length > 0 ? (
+                    currentExtracted.projects.map((p, idx) => (
+                      <div key={idx} className="flex items-center space-x-2 text-slate-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                        <span>{p}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <span className="text-slate-600 italic">No sub-projects identified yet.</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Priority & Category Badge */}
+              <div className="mt-3 flex items-center space-x-3">
+                <div className="flex-1">
+                  <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                    Priority
+                  </label>
+                  <span className="inline-block px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-950/60 border border-indigo-700/60 text-indigo-300">
+                    {currentExtracted.priority || 'NORMAL'}
+                  </span>
+                </div>
+                <div className="flex-1">
+                  <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">
+                    Domain
+                  </label>
+                  <span className="inline-block px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 border border-slate-700 text-slate-300">
+                    {currentExtracted.category || 'Work'}
+                  </span>
+                </div>
+              </div>
             </div>
-            <h3 className="text-lg font-bold text-white">Onboarding Complete!</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Your goals are now active in PAIOS memory. The adaptive timetable engine will prioritize daily tasks to help you reach them.
-            </p>
-          </div>
-        )}
-      </div>
 
-      {/* Footer Branding */}
-      <div className="w-full max-w-2xl mx-auto text-center pb-4 text-xs text-slate-500 flex items-center justify-center gap-1.5">
-        <Shield className="w-3.5 h-3.5 text-slate-600" />
-        <span>PAIOS 5.0 &bull; Goal Probing & Adaptive Intelligence Engine</span>
+            {/* Discovered Goals Count */}
+            <div className="mt-6 pt-4 border-t border-slate-800">
+              <div className="flex items-center justify-between text-xs text-slate-400 mb-3">
+                <span>Confirmed Workspace Goals:</span>
+                <span className="font-bold text-white">{extractedGoals.length}</span>
+              </div>
+              <button
+                id="onboarding-finish-btn"
+                data-testid="onboarding-finish-btn"
+                onClick={handleConfirmAndFinish}
+                className="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-indigo-600/30 flex items-center justify-center space-x-2 transition-all cursor-pointer"
+              >
+                <span>Confirm Goals & Enter PAIOS</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
